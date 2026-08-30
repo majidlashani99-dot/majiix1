@@ -1,9 +1,8 @@
 name: Gold & Dollar Price Reporter
 
 on:
-  workflow_dispatch: # برای تست دستی
+  workflow_dispatch:
   schedule:
-    # ساعت 05:30 به وقت UTC برابر با 09:00 صبح به وقت ایران
     - cron: '30 5 * * *'
 
 jobs:
@@ -13,6 +12,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Set up System Dependencies for Arabic/Persian
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libraqm0 libfribidi0
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -20,7 +24,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install requests beautifulsoup4 pillow arabic-reshaper python-bidi jdatetime
+          pip install requests beautifulsoup4 pillow arabic-reshaper jdatetime
 
       - name: Run Script
         env:
@@ -35,3 +39,4 @@ jobs:
         with:
           name: gold-price-image
           path: Gold_Dollar_Report.png
+
