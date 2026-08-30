@@ -1,166 +1,141 @@
 import os
-import sys
 import requests
 from bs4 import BeautifulSoup
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
+OUTAGE_URL = "https://ledc.ir/%d8%ae%d8%a7%d9%85%d9%88%d8%b4%db%8c%d9%87%d8%a7%db%8c-%d8%a8%d8%b1%d9%86%d8%a7%d9%85%d9%87-%d8%b1%db%8c%d8%8%b1%db%8c%d8%b2%db%8c%87"
+KEYWORDS = ["دورود"]
+
 def fix_text(text: str) -> str:
-    """اصلاح متون فارسی و راست‌به‌چپ برای موتور ReportLab"""
+    """اصلاح متن فارسی برای ReportLab"""
     if not text:
         return ""
     try:
-        reshaped_text = arabic_reshaper.reshape(str(text))
-        return get_display(reshaped_text)
+        return get_display(arabic_reshaper.reshape(str(text)))
     except Exception:
         return str(text)
 
 def download_font():
-    """دانلود فونت فارسی استاندارد در صورت عدم وجود"""
     font_path = "Vazirmatn-Regular.ttf"
     if not os.path.exists(font_path):
         print("در حال دانلود فونت فارسی Vazirmatn...")
         url = "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Regular.ttf"
-        res = requests.get(url, timeout=30)
         with open(font_path, "wb") as f:
-            f.write(res.content)
+            f.write(requests.get(url, timeout=30).content)
     pdfmetrics.registerFont(TTFont("Vazirmatn", font_path))
 
-def fetch_doroud_outages():
-    """دریافت اطلاعیه‌ها از سایت توزیع برق لرستان"""
-    url = "https://ledc.ir"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
-    }
-    
-    records = []
+def fetch_outages():
+    """خواندن جدول خاموشی‌های برنامه‌ریزی‌شده از سایت برق لرستان"""
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/115.0"}
+    rows_out = []
+    update_date = ""
     try:
-        response = requests.get(url, headers=headers, timeout=25, verify=False)
-        response.encoding = "utf-8"
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, "html.parser")
-            # استخراج تمام تیترها و متون مهم مرتبط
-            elements = soup.find_all(["p", "div", "h2", "h3", "li", "span"])
-            for el in elements:
-                text = el.get_text(strip=True)
-                if len(text) > 15 and ("دورود" in text or "خاموشی" in text or "برق" in text or "برنامه" in text):
-                    if text not in records:
-                        records.append(text)
-    except Exception as e:
-        print(f"خطا در برقراری ارتباط با سرور: {e}")
-        
-    if not records:
-        records.append("در حال حاضر برنامه خاموشی جدیدی برای شهرستان دورود در سامانه درج نشده است.")
-        
-    return records
+        res = requests.get(OUTAGE_URL, headers=headers, timeout=30, verify=False)
+        res.encoding = "utf-8"
+        soup = BeautifulSoup(res.text, "html.parser")
 
-def generate_pdf(data_list, output_filename="Doroud_Outage_Report.pdf"):
-    """ساخت فایل PDF چندصفحه‌ای با صفحه‌بندی پایدار"""
+        # تاریخ بروزرسانی (اولین متنی که الگوی تاریخ دارد)
+        import re
+        for txt in soup.stripped_strings:
+            m = re.search(r'\d{2}/\d{1,2}/\d{1,2}', txt)
+            if m:
+                update_date = m.group(0)
+                break
+
+        # پیدا کردن جدول(های) خاموشی
+        tables = soup.find_all("table")
+        for table in tables:
+            for tr in table.find_all("tr"):
+                cells = [td.get_text(" ", strip=True) for td in tr.find_all(["td", "th"])]
+                if not cells:
+                    continue
+                row_text = " ".join(cells)
+                # فقط ردیف‌های مرتبط با دورود (یا هدر جدول)
+                if any(k in row_text for k in KEYWORDS) or "ساعت" in row_text or "فیدر" in row_text:
+                    rows_out.append(cells)
+    except Exception as e:
+        print(f"خطا در دریافت سایت: {e}")
+
+    if not rows_out:
+        rows_out = [["ساعت قطع", "نام فیدر", "مناطق"], ["-", "-", "در حال حاضر جدول خاموشی برای دورود یافت نشد."]]
+    return rows_out, update_date
+
+def generate_pdf(rows, update_date, output="Doroud_Outage_Report.pdf"):
     download_font()
-    
-    # حاشیه استاندارد
-    doc = SimpleDocTemplate(
-        output_filename,
-        pagesize=A4,
-        rightMargin=36,
-        leftMargin=36,
-        topMargin=36,
-        bottomMargin=36
-    )
-    
+    doc = SimpleDocTemplate(output, pagesize=landscape(A4),
+                            rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     styles = getSampleStyleSheet()
-    
-    title_style = ParagraphStyle(
-        'PersianTitle',
-        parent=styles['Normal'],
-        fontName='Vazirmatn',
-        fontSize=16,
-        leading=22,
-        alignment=1,  # وسط‌چین
-        textColor=colors.HexColor("#1a365d")
-    )
-    
-    body_style = ParagraphStyle(
-        'PersianBody',
-        parent=styles['Normal'],
-        fontName='Vazirmatn',
-        fontSize=10,
-        leading=16,
-        alignment=2,  # راست‌چین
-        textColor=colors.HexColor("#2d3748"),
-        wordWrap='RTL'
-    )
-    
-    meta_style = ParagraphStyle(
-        'PersianMeta',
-        parent=styles['Normal'],
-        fontName='Vazirmatn',
-        fontSize=8,
-        leading=12,
-        alignment=1,
-        textColor=colors.HexColor("#718096")
-    )
+
+    title_s = ParagraphStyle('T', parent=styles['Normal'], fontName='Vazirmatn', fontSize=16,
+                             leading=22, alignment=1, textColor=colors.HexColor("#1a365d"))
+    cell_s = ParagraphStyle('C', parent=styles['Normal'], fontName='Vazirmatn', fontSize=9,
+                            leading=14, alignment=2, wordWrap='RTL', textColor=colors.HexColor("#2d3748"))
+    head_s = ParagraphStyle('H', parent=cell_s, fontSize=10, alignment=1,
+                            textColor=colors.white)
+    meta_s = ParagraphStyle('M', parent=styles['Normal'], fontName='Vazirmatn', fontSize=8,
+                            leading=12, alignment=1, textColor=colors.HexColor("#718096"))
 
     story = []
-    
-    # عنوان گزارش
-    story.append(Paragraph(fix_text("گزارش وضعیت و اطلاعیه‌های برق شهرستان دورود"), title_style))
-    story.append(Spacer(1, 8))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#3182ce"), spaceAfter=12))
-    
-    # درج اطلاعیه‌ها به صورت پاراگراف‌های مجزا
-    for idx, item in enumerate(data_list, 1):
-        # تمیزکاری متن‌های بیش از حد طولانی برای جلوگیری از سرریز صفحه
-        cleaned_item = item.strip()
-        if len(cleaned_item) > 600:
-            cleaned_item = cleaned_item[:600] + "..."
-            
-        entry_text = f"<b>{idx}.</b> {cleaned_item}"
-        story.append(Paragraph(fix_text(entry_text), body_style))
-        story.append(Spacer(1, 8))
-        story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#e2e8f0"), spaceAfter=8))
-        
-    story.append(Spacer(1, 15))
-    story.append(Paragraph(fix_text("تهیه شده توسط سیستم هوشمند مانیتورینگ دورود"), meta_style))
-    
-    doc.build(story)
-    print(f"فایل با موفقیت تولید شد: {output_filename}")
-    return output_filename
+    story.append(Paragraph(fix_text("برنامه خاموشی‌های برق شهرستان دورود"), title_s))
+    if update_date:
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(fix_text(f"آخرین بروزرسانی: {update_date}"), meta_s))
+    story.append(Spacer(1, 6))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#3182ce"), spaceAfter=10))
+
+    # ساخت جدول با پاراگراف‌های داخل سلول (شکستن خودکار در صفحات بعدی)
+    table_data = []
+    n_cols = max(len(r) for r in rows)
+    for i, r in enumerate(rows):
+        r = r + [""] * (n_cols - len(r))
+        style = head_s if i == 0 else cell_s
+        table_data.append([Paragraph(fix_text(c), style) for c in r])
+
+    col_widths = [doc.width * w for w in (0.15, 0.15, 0.70)][:n_cols]
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1a365d")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#a0aec0")),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#edf2f7")]),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    story.append(t)
+
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(fix_text("تهیه شده توسط سیستم هوشمند مانیتورینگ دورود"), meta_s))
+    doc.build(t and story)
+    print(f"فایل تولید شد: {output}")
+    return output
 
 def send_telegram(file_path):
-    """ارسال فایل PDF تولیدشده به تلگرام"""
-    bot_token = os.environ.get("TG_TOKEN")
+    token = os.environ.get("TG_TOKEN")
     chat_id = os.environ.get("TG_CHAT_ID")
-    
-    if not bot_token or not chat_id:
-        print("توکن تلگرام یا شناسه چت تنظیم نشده است. مرحله ارسال نادیده گرفته شد.")
+    if not token or not chat_id:
+        print("سکرت‌های تلگرام تنظیم نشده‌اند.")
         return
-
-    telegram_api_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-    caption_text = fix_text("📄 گزارش جدید خاموشی و اطلاعیه‌های برق دورود")
-    
-    with open(file_path, "rb") as doc_file:
-        files = {"document": doc_file}
-        data = {"chat_id": chat_id, "caption": "📄 گزارش جدید خاموشی و اطلاعیه‌های برق شهرستان دورود"}
-        
-        try:
-            res = requests.post(telegram_api_url, data=data, files=files, timeout=40)
-            if res.status_code == 200:
-                print("گزارش با موفقیت در تلگرام ارسال شد.")
-            else:
-                print(f"خطای تلگرام ({res.status_code}): {res.text}")
-        except Exception as e:
-            print(f"خطا در ارتباط با سرور تلگرام: {e}")
+    try:
+        with open(file_path, "rb") as f:
+            res = requests.post(
+                f"https://api.telegram.org/bot{token}/sendDocument",
+                data={"chat_id": chat_id, "caption": "📄 برنامه خاموشی‌های برق شهرستان دورود"},
+                files={"document": f}, timeout=60)
+        print("ارسال موفق" if res.status_code == 200 else f"خطای تلگرام: {res.text}")
+    except Exception as e:
+        print(f"خطا در ارسال: {e}")
 
 if __name__ == "__main__":
-    data = fetch_doroud_outages()
-    pdf_path = generate_pdf(data)
-    send_telegram(pdf_path)
+    import urllib3
+    urllib3.disable_warnings()
+    rows, upd = fetch_outages()
+    pdf = generate_pdf(rows, upd)
+    send_telegram(pdf)
