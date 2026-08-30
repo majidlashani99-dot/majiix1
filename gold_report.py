@@ -4,19 +4,23 @@ from bs4 import BeautifulSoup
 import jdatetime
 from PIL import Image, ImageDraw, ImageFont
 import arabic_reshaper
-from bidi.algorithm import get_display
 
 URL = "https://moj3.ir/price/"
 IMG_FILE = "Gold_Dollar_Report.png"
 
+# تنظیمات پیشرفته برای اتصال صحیح تمام حروف و ارقام فارسی
+reshaper_config = {
+    'delete_harakat': False,
+    'support_ligatures': True,
+    'language': 'Persian'
+}
+reshaper = arabic_reshaper.ArabicReshaper(configuration=reshaper_config)
+
 def fix(text):
-    """رفع مشکل جدانویسی و برعکس شدن حروف فارسی"""
+    """رفع مشکل جدانویسی حروف فارسی"""
     if not text:
         return ""
-    # تنظیمات دقیق reshaper برای اتصال کامل کاراکترهای فارسی
-    reshaped_text = arabic_reshaper.reshape(str(text))
-    bidi_text = get_display(reshaped_text)
-    return bidi_text
+    return reshaper.reshape(str(text))
 
 def fetch_table():
     headers = {
@@ -53,7 +57,7 @@ def fetch_table():
     return headers_row, rows
 
 def download_font():
-    """دانلود فونت وزیرمتن برای ساخت عکس زیبا"""
+    """دانلود فونت وزیرمتن"""
     base = "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/"
     for name in ["Vazirmatn-Bold.ttf", "Vazirmatn-Regular.ttf"]:
         if not os.path.exists(name):
@@ -69,7 +73,7 @@ def make_image(headers_row, rows, date_text):
     ROW_H = 58
     HEADER_H = 62
     TITLE_H = 120
-    H = TITLE_H + HEADER_H + (ROW_H * len(rows)) + 40
+    H = TITLE_H + HEADER_H + (ROW_H * len(rows)) + 30
 
     bg = (15, 23, 42)          # پس‌زمینه سرمه‌ای تیره
     header_bg = (2, 132, 199)  # هدر آبی
@@ -87,15 +91,15 @@ def make_image(headers_row, rows, date_text):
     f_date = ImageFont.truetype("Vazirmatn-Regular.ttf", 18)
 
     # سرتیتر و تاریخ
-    draw.text((W // 2, 45), fix("قیمت لحظه‌ای طلا، سکه و ارز"), font=f_title, fill=accent, anchor="mm")
-    draw.text((W // 2, 85), fix(f"{date_text}  |  منبع: moj3.ir"), font=f_date, fill=(148, 163, 184), anchor="mm")
+    draw.text((W // 2, 45), fix("قیمت لحظه‌ای طلا، سکه و ارز"), font=f_title, fill=accent, anchor="mm", direction="rtl")
+    draw.text((W // 2, 85), fix(date_text), font=f_date, fill=(148, 163, 184), anchor="mm", direction="rtl")
 
     # ردیف هدر
     y = TITLE_H
     draw.rectangle([25, y, W - 25, y + HEADER_H], fill=header_bg)
-    draw.text((W - 50, y + HEADER_H // 2), fix("نام دارایی"), font=f_header, fill=text_light, anchor="rm")
-    draw.text((W // 2, y + HEADER_H // 2), fix("قیمت (تومان)"), font=f_header, fill=text_light, anchor="mm")
-    draw.text((80, y + HEADER_H // 2), fix("تغییرات"), font=f_header, fill=text_light, anchor="lm")
+    draw.text((W - 50, y + HEADER_H // 2), fix("نام دارایی"), font=f_header, fill=text_light, anchor="rm", direction="rtl")
+    draw.text((W // 2, y + HEADER_H // 2), fix("قیمت (تومان)"), font=f_header, fill=text_light, anchor="mm", direction="rtl")
+    draw.text((60, y + HEADER_H // 2), fix("تغییرات"), font=f_header, fill=text_light, anchor="lm")
 
     # ردیف‌های داده‌ها
     y += HEADER_H
@@ -105,20 +109,19 @@ def make_image(headers_row, rows, date_text):
         
         if len(row) >= 1:
             # نام دارایی (راست‌چین)
-            draw.text((W - 50, y + ROW_H // 2), fix(row[0]), font=f_cell, fill=accent, anchor="rm")
+            draw.text((W - 50, y + ROW_H // 2), fix(row[0]), font=f_cell, fill=accent, anchor="rm", direction="rtl")
             
         if len(row) >= 2:
             # قیمت (وسط‌چین)
-            draw.text((W // 2, y + ROW_H // 2), fix(row[1]), font=f_cell, fill=text_light, anchor="mm")
+            draw.text((W // 2, y + ROW_H // 2), str(row[1]), font=f_cell, fill=text_light, anchor="mm")
         
-        # درصد تغییرات (چپ‌چین با رنگ مشخص)
+        # درصد تغییرات (چپ‌چین)
         change = next((c for c in row[2:] if '%' in c), "")
         if change:
             c_color = (74, 222, 128) if '+' in change else (248, 113, 113)
-            # در صورتی که تغییرات 0 یا بدون علامت باشه رنگ خنثی
             if '+' not in change and '-' not in change:
                 c_color = (148, 163, 184)
-            draw.text((80, y + ROW_H // 2), fix(change), font=f_cell, fill=c_color, anchor="lm")
+            draw.text((60, y + ROW_H // 2), str(change), font=f_cell, fill=c_color, anchor="lm")
 
         y += ROW_H
 
@@ -133,11 +136,10 @@ def send_to_telegram(image_file, date_text):
         print("خطا: TG_TOKEN یا TG_CHAT_ID تنظیم نشده است.")
         return
 
+    # کپشن ساده و بدون آیدی یا منبع
     caption = (
         f"<b>💰 قیمت لحظه‌ای طلا، سکه و ارز</b>\n\n"
-        f"📅 {date_text}\n\n"
-        f"📊 منبع: موج سوم (moj3.ir)\n"
-        f"🆔 @Doroudcity"
+        f"📅 {date_text}"
     )
 
     url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
