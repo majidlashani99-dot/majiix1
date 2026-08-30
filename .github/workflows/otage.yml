@@ -1,0 +1,39 @@
+name: Iran Outage Reporter
+
+on:
+  schedule:
+    - cron: "30 4 * * *" # این یعنی ساعت 8:00 صبح به وقت ایران (30 4 به UTC)
+  workflow_dispatch: # برای اینکه بتونی دستی هم اجراش کنی
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 reportlab python-telegram-bot arabic-reshaper python-bidi
+
+      - name: Run Python script
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python main.py
+
+      - name: Upload report PDF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: outage-report-pdf
+          path: "*.pdf"
+          if-no-files-found: ignore
+          retention-days: 7
