@@ -1,4 +1,5 @@
-main.py# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
+import os
 import requests
 from bs4 import BeautifulSoup
 from reportlab.lib.pagesizes import A4
@@ -8,22 +9,23 @@ from reportlab.platypus import Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 import arabic_reshaper
 from bidi.algorithm import get_display
-import os
-import telegram
 
 TELEGRAM_TOKEN = os.environ.get('TG_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TG_CHAT_ID')
 URL = "http://ledc.ir/"
 
 def scrape_outages(url):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     try:
-        response = requests.get(url, timeout=20)
+        response = requests.get(url, headers=headers, timeout=25)
         response.raise_for_status()
 
         soup = BeautifulSoup(response.content, 'html.parser')
         table = soup.find('table')
         if not table:
-            print("جدول خاموشی‌ها پیدا نشد.")
+            print("جدول خاموشی‌ها در صفحه اصلی پیدا نشد.")
             return []
 
         outages = []
@@ -42,64 +44,52 @@ def scrape_outages(url):
                     'end_time': end_time
                 })
         return outages
-    except requests.exceptions.RequestException as e:
-        print(f"خطا در درخواست به سایت: {e}")
-        return []
     except Exception as e:
-        print(f"خطای ناشناخته در پردازش: {e}")
+        print(f"خطا در دریافت اطلاعات سایت: {e}")
         return []
 
 def create_pdf_report(outages, filename="outage_report.pdf"):
     c = canvas.Canvas(filename, pagesize=A4)
     width, height = A4
     styles = getSampleStyleSheet()
-    style_arabic = styles['Normal']
+    style_normal = styles['Normal']
 
-    title_text = "گزارش خاموشی‌های برق شهرستان دورود"
-    reshaped_title = arabic_reshaper.reshape(title_text)
-    bidi_title = get_display(reshaped_title)
-    p_title = Paragraph(bidi_title, styles['h1'])
+    # رسم عنوان
+    title_raw = "گزارش خاموشی‌های برق شهرستان دورود"
+    title_text = get_display(arabic_reshaper.reshape(title_raw))
+    p_title = Paragraph(f"<font size=16><b>{title_text}</b></font>", styles['Heading1'])
     p_title.wrapOn(c, width - 2*inch, inch)
-    p_title.drawOn(c, inch, height - inch - p_title.height)
+    p_title.drawOn(c, inch, height - 1.2*inch)
 
-    y_position = height - 2*inch
+    y_position = height - 2.0*inch
 
     if not outages:
-        no_data_text = "امروز خاموشی ثبت نشده یا جدول در دسترس نیست."
-        reshaped_no_data = arabic_reshaper.reshape(no_data_text)
-        bidi_no_data = get_display(reshaped_no_data)
-        p_no_data = Paragraph(bidi_no_data, style_arabic)
+        no_data_raw = "امروز برنامه خاموشی جدیدی در سایت ثبت نشده است یا در دسترس نیست."
+        no_data_text = get_display(arabic_reshaper.reshape(no_data_raw))
+        p_no_data = Paragraph(no_data_text, style_normal)
         p_no_data.wrapOn(c, width - 2*inch, height)
         p_no_data.drawOn(c, inch, y_position)
     else:
         for outage in outages:
-            region_text = f"منطقه: {outage['region']}"
-            address_text = f"آدرس: {outage['address']}"
-            time_text = f"زمان: از {outage['start_time']} تا {outage['end_time']}"
+            region_text = get_display(arabic_reshaper.reshape(f"منطقه: {outage['region']}"))
+            address_text = get_display(arabic_reshaper.reshape(f"آدرس: {outage['address']}"))
+            time_text = get_display(arabic_reshaper.reshape(f"زمان: از {outage['start_time']} تا {outage['end_time']}"))
 
-            reshaped_region = arabic_reshaper.reshape(region_text)
-            bidi_region = get_display(reshaped_region)
-            p_region = Paragraph(bidi_region, style_arabic)
-
-            reshaped_address = arabic_reshaper.reshape(address_text)
-            bidi_address = get_display(reshaped_address)
-            p_address = Paragraph(bidi_address, style_arabic)
-
-            reshaped_time = arabic_reshaper.reshape(time_text)
-            bidi_time = get_display(reshaped_time)
-            p_time = Paragraph(bidi_time, style_arabic)
+            p_region = Paragraph(f"<b>{region_text}</b>", style_normal)
+            p_address = Paragraph(address_text, style_normal)
+            p_time = Paragraph(time_text, style_normal)
 
             p_region.wrapOn(c, width - 2*inch, inch)
             p_region.drawOn(c, inch, y_position)
-            y_position -= p_region.height + 0.2*inch
+            y_position -= (p_region.height + 0.15*inch)
 
             p_address.wrapOn(c, width - 2*inch, inch)
             p_address.drawOn(c, inch, y_position)
-            y_position -= p_address.height + 0.2*inch
+            y_position -= (p_address.height + 0.15*inch)
 
             p_time.wrapOn(c, width - 2*inch, inch)
             p_time.drawOn(c, inch, y_position)
-            y_position -= p_time.height + 0.5*inch
+            y_position -= (p_time.height + 0.35*inch)
 
             if y_position < inch:
                 c.showPage()
@@ -107,29 +97,38 @@ def create_pdf_report(outages, filename="outage_report.pdf"):
 
     try:
         c.save()
-        print(f"فایل PDF ساخته شد: {filename}")
+        print(f"فایل PDF با موفقیت ایجاد شد: {filename}")
         return filename
     except Exception as e:
-        print(f"خطا در ساخت PDF: {e}")
+        print(f"خطا در ایجاد فایل PDF: {e}")
         return None
 
 def send_pdf_to_telegram(pdf_path):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("توکن تلگرام یا چت آیدی تنظیم نشده است.")
+        print("خطا: مقادیر TG_TOKEN یا TG_CHAT_ID در سکرت‌ها تنظیم نشده‌اند.")
         return
 
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument"
+    caption = "⚡️ گزارش روزانه برنامه خاموشی برق دورود"
+
     try:
-        bot = telegram.Bot(token=TELEGRAM_TOKEN)
         with open(pdf_path, 'rb') as f:
-            bot.send_document(chat_id=TELEGRAM_CHAT_ID, document=f, caption="⚡ گزارش روزانه خاموشی برق دورود")
-        print("فایل به تلگرام ارسال شد.")
+            files = {'document': f}
+            data = {'chat_id': TELEGRAM_CHAT_ID, 'caption': caption}
+            response = requests.post(url, data=data, files=files, timeout=30)
+            
+        res_json = response.json()
+        if res_json.get("ok"):
+            print("فایل PDF با موفقیت به تلگرام ارسال شد!")
+        else:
+            print(f"پاسخ تلگرام با خطا مواجه شد: {res_json}")
     except Exception as e:
-        print(f"خطا در ارسال به تلگرام: {e}")
+        print(f"خطا در ارتباط مستقیم با API تلگرام: {e}")
 
 if __name__ == "__main__":
-    print("شروع پردازش...")
-    outages_data = scrape_outages(URL)
-    pdf_filename = create_pdf_report(outages_data)
-    if pdf_filename:
-        send_pdf_to_telegram(pdf_filename)
-    print("پایان.")
+    print("--- شروع فرآیند دریافت و ارسال گزارش ---")
+    outages = scrape_outages(URL)
+    pdf = create_pdf_report(outages)
+    if pdf and os.path.exists(pdf):
+        send_pdf_to_telegram(pdf)
+    print("--- پایان عملیات ---")
