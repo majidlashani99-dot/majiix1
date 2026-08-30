@@ -68,12 +68,12 @@ def make_image(headers_row, rows, date_text):
     TITLE_H = 110
     H = TITLE_H + HEADER_H + ROW_H * len(rows) + 30
 
-    bg = (15, 23, 42)          # پس‌زمینه تیره
+    bg = (15, 23, 42)          # پس‌زمینه سرمه‌ای تیره
     header_bg = (2, 132, 199)  # هدر آبی
     row_bg1 = (30, 41, 59)
     row_bg2 = (24, 33, 50)
     text_light = (241, 245, 249)
-    accent = (250, 204, 21)    # طلایی
+    accent = (250, 204, 21)    # رنگ طلایی
 
     img = Image.new('RGB', (W, H), bg)
     draw = ImageDraw.Draw(img)
@@ -90,13 +90,6 @@ def make_image(headers_row, rows, date_text):
     # ردیف هدر
     y = TITLE_H
     draw.rectangle([20, y, W - 20, y + HEADER_H], fill=header_bg)
-    draw.text((W - 40, y + HEADER_H // 2), fix("دارایی"), font=f_header, fill=text_light, anchor="rm")
-    draw.text((W - 360, y + HEADER_H // 2), fix("قیمت (تومان)"), font=f_header, fill=text_light, anchor="rm")
-    draw.text((W - 680, y + HEADER_H // 2), fix("تغییرات"), font=f_header, fill=text_light, anchor="rm")
-
-    # ردیف‌های داده‌ها
-    y += HEADER_H
-    for[20, y, W - 20, y + HEADER_H], fill=header_bg)
     draw.text((W - 40, y + HEADER_H // 2), fix("دارایی"), font=f_header, fill=text_light, anchor="rm")
     draw.text((W - 360, y + HEADER_H // 2), fix("قیمت (تومان)"), font=f_header, fill=text_light, anchor="rm")
     draw.text((W - 680, y + HEADER_H // 2), fix("تغییرات"), font=f_header, fill=text_light, anchor="rm")
@@ -122,7 +115,21 @@ def make_image(headers_row, rows, date_text):
 
         y += ROW_H
 
-n"
+    img.save(IMG_FILE)
+    print(f"تصویر با موفقیت ساخته شد: {IMG_FILE}")
+    return IMG_FILE
+
+def send_to_telegram(image_file, date_text):
+    bot_token = os.environ.get("TG_TOKEN")
+    chat_id = os.environ.get("TG_CHAT_ID")
+    if not bot_token or not chat_id:
+        print("خطا: TG_TOKEN یا TG_CHAT_ID تنظیم نشده است.")
+        return
+
+    caption = (
+        f"<b>💰 قیمت لحظه‌ای طلا و ارز</b>\n\n"
+        f"📅 {date_text}\n\n"
+        f"📊 منبع: موج سوم (moj3.ir)\n"
         f"🆔 @Doroudcity"
     )
 
