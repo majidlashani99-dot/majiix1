@@ -1,27 +1,26 @@
 name: Iran Outage Reporter
 
 on:
+  workflow_dispatch: # امکان اجرای دستی هر وقت که خواستی
   schedule:
-    - cron: "30 4 * * *" # هر روز ساعت ۸:۰۰ صبح به وقت ایران
-  workflow_dispatch: # امکان اجرای دستی با یک کلیک
+    # اجرا هر روز ساعت 07:30 صبح به وقت ایران (04:00 بامداد به وقت UTC)
+    - cron: '0 4 * * *'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 reportlab arabic-reshaper python-bidi
+          pip install requests beautifulsoup4 reportlab arabic-reshaper python-bidi jdatetime
 
       - name: Run Script
         env:
