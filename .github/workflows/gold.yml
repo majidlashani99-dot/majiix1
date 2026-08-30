@@ -1,0 +1,37 @@
+name: Gold & Dollar Price Reporter
+
+on:
+  workflow_dispatch: # برای تست دستی
+  schedule:
+    # ساعت 05:30 به وقت UTC برابر با 09:00 صبح به وقت ایران
+    - cron: '30 5 * * *'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install requests beautifulsoup4 pillow arabic-reshaper python-bidi jdatetime
+
+      - name: Run Script
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          python gold_report.py
+
+      - name: Upload Image Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gold-price-image
+          path: Gold_Dollar_Report.png
