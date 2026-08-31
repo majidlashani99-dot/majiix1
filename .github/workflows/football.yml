@@ -2,10 +2,10 @@ name: MAJIX Football Report
 
 on:
   schedule:
-    # ساعت 22:00 ایران معادل 18:30 UTC
+    # ساعت 22:00 ایران = 18:30 UTC
     - cron: "30 18 * * *"
 
-  # امکان اجرای دستی از تب Actions
+  # اجرای دستی از تب Actions
   workflow_dispatch:
 
 permissions:
@@ -21,11 +21,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # نکته: بدون cache: "pip" چون requirements.txt در ریپو نداریم
       - name: Set Up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
       - name: Install Persian Fonts
         run: |
