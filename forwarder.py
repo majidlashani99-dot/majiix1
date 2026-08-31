@@ -1,73 +1,152 @@
 import os
 import re
+import sys
+from datetime import datetime, timezone, timedelta
 import requests
 from bs4 import BeautifulSoup
 
+# دریافت متغیرهای محیطی
 BOT_TOKEN = os.getenv("TG_TOKEN")
 CHAT_ID = os.getenv("TG_CHAT_ID")
-SOURCE_CHANNEL = "LiveScore_plus"
+SOURCE_CHANNEL = os.getenv("SOURCE_CHANNEL", "SPORTinoTV").strip().lstrip("@")
+FILTER_TEXT = os.getenv("FILTER_TEXT", "کنداکتور").strip()
+
+REQUEST_TIMEOUT = 30
+MAX_POSTS_TO_CHECK = 15
+
+# تنظیم منطقه زمانی ایران (UTC+3:30)
+IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 def clean_text(text: str) -> str:
+    """حذف لینک‌ها، منشن‌ها و فضاهای خالی اضافه."""
     if not text:
         return ""
-    text = re.sub(r'@[A-Za-z0-9_]+', '', text)
-    text = re.sub(r'https?://\S+|www\.\S+|t\.me/\S+', '', text)
+    text = re.sub(r"https?://\S+", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"www\.\S+", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?<!\w)t\.me/\S+", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?<!\w)@[A-Za-z0-9_]+", "", text)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return "\n".join(lines)
+    return "\n".join(lines).strip()
 
-def send_telegram(method: str, payload: dict):
+def is_today_post(time_elem) -> bool:
+    """بررسی اینکه آیا پست متعلق به امروز است یا خیر."""
+    if not time_elem or not time_elem.get("datetime"):
+        return True  # در صورت عدم وجود تگ زمان، مجاز رد شود
+
+    try:
+        # فرمت نمونه: 2026-08-31T06:15:00+00:00
+        dt_str = time_elem["datetime"]
+        post_dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+        post_dt_iran = post_dt.astimezone(IRAN_TZ)
+        today_iran = datetime.now(IRAN_TZ).date()
+        return post_dt_iran.date() == today_iran
+    except Exception as e:
+        print(f"⚠️ خطا در تبدیل تاریخ پست: {e}")
+        return True
+
+def contains_filter(text: str) -> bool:
+    """بررسی وجود کلمه کلیدی فیلتر."""
+    if not text or not FILTER_TEXT:
+        return False
+    normalized_text = re.sub(r"\s+", " ", text).strip().casefold()
+    normalized_filter = re.sub(r"\s+", " ", FILTER_TEXT).strip().casefold()
+    return normalized_filter in normalized_text
+
+def extract_photo_url(message) -> str | None:
+    """استخراج تصویر با بالاترین کیفیت."""
+    photo_elem = message.find("a", class_="tgme_widget_message_photo_wrap")
+    if not photo_elem:
+        return None
+    style = photo_elem.get("style", "")
+    match = re.search(r"background-image\s*:\s*url\(['\"]?([^'\")]+)['\"]?\)", style)
+    return match.group(1).strip() if match else None
+
+def send_telegram(method: str, payload: dict) -> bool:
+    """ارسال پیام به ربات تلگرام مقصد."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
-    res = requests.post(url, json=payload)
-    if not res.ok:
-        print(f"❌ خطای تلگرام ({method}): {res.text}")
-    else:
-        print(f"✅ {method} با موفقیت ارسال شد.")
-    return res.ok
+    try:
+        res = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
+        res_data = res.json()
+        if res_data.get("ok"):
+            print(f"✅ عملیات {method} با موفقیت انجام شد.")
+            return True
+        else:
+            print(f"❌ پاسخ ناموفق تلگرام: {res_data}")
+            return False
+    except Exception as e:
+        print(f"❌ خطای اتصال به تلگرام: {e}")
+        return False
 
 def main():
     if not BOT_TOKEN or not CHAT_ID:
-        print("❌ مقادیر TG_TOKEN یا TG_CHAT_ID تنظیم نشده‌اند.")
-        return
+        print("❌ مقادیر TG_TOKEN یا TG_CHAT_ID در GitHub Secrets تنظیم نشده‌اند.")
+        sys.exit(1)
+
+    today_str = datetime.now(IRAN_TZ).strftime("%Y-%m-%d")
+    print(f"📅 تاریخ امروز (ایران): {today_str}")
+    print(f"📡 در حال رصد کانال: https://t.me/s/{SOURCE_CHANNEL}")
+    print(f"🔍 فیلتر کلمه: «{FILTER_TEXT}»")
 
     url = f"https://t.me/s/{SOURCE_CHANNEL}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept-Language": "fa,en-US;q=0.9,en;q=0.8",
     }
 
-    print(f"📡 در حال دریافت پیام‌ها از {url} ...")
-    response = requests.get(url, headers=headers)
-    print(f"🌐 وضعیت پاسخ سرور: {response.status_code}")
-    if response.status_code != 200:
-        print("❌ دسترسی به صفحه وب کانال ممکن نشد.")
-        return
+    try:
+        res = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        res.raise_for_status()
+    except Exception as e:
+        print(f"❌ خطا در بارگذاری صفحه کانال: {e}")
+        sys.exit(1)
 
-    soup = BeautifulSoup(response.text, "html.parser")
-    messages = soup.find_all("div", class_="tgme_widget_message_wrap")
-    print(f"🔎 تعداد پیام‌های یافت‌شده: {len(messages)}")
+    soup = BeautifulSoup(res.text, "html.parser")
+    messages = soup.select("div.tgme_widget_message_wrap")
 
     if not messages:
-        print("⚠️ هیچ پیامی یافت نشد.")
+        print("⚠️ هیچ پیامی در صفحه کانال یافت نشد.")
         return
 
-    for msg in messages[-5:]:
-        text_elem = msg.find("div", class_="tgme_widget_message_text")
-        cleaned = clean_text(text_elem.get_text(separator="\n") if text_elem else "")
+    sent_count = 0
+    for msg in messages[-MAX_POSTS_TO_CHECK:]:
+        time_elem = msg.find("time")
+        text_elem = msg.select_one("div.tgme_widget_message_text")
+        raw_text = text_elem.get_text(separator="\n", strip=True) if text_elem else ""
 
-        photo_url = None
-        photo_elem = msg.find("a", class_="tgme_widget_message_photo_wrap")
-        if photo_elem and photo_elem.get("style"):
-            match = re.search(r"background-image:url\('([^']+)'\)", photo_elem["style"])
-            if match:
-                photo_url = match.group(1)
+        # بررسی کلمه کنداکتور
+        if not contains_filter(raw_text):
+            continue
 
-        if photo_url:
-            print("📸 ارسال عکس...")
-            send_telegram("sendPhoto", {"chat_id": CHAT_ID, "photo": photo_url, "caption": cleaned[:1024]})
-        elif cleaned:
-            print("📝 ارسال پیام متنی...")
-            send_telegram("sendMessage", {"chat_id": CHAT_ID, "text": cleaned, "disable_web_page_preview": True})
+        # بررسی اینکه برای امروز باشد
+        if not is_today_post(time_elem):
+            print("⏳ یک پست کنداکتور یافت شد، اما متعلق به روزهای گذشته بود (نادیده گرفته شد).")
+            continue
 
-    print("✅ پایان اجرا.")
+        print("🎯 کنداکتور امروز یافت شد! در حال آماده‌سازی برای ارسال...")
+        cleaned = clean_text(raw_text)
+        photo = extract_photo_url(msg)
+
+        if photo:
+            success = send_telegram("sendPhoto", {
+                "chat_id": CHAT_ID,
+                "photo": photo,
+                "caption": cleaned[:1024]
+            })
+        else:
+            success = send_telegram("sendMessage", {
+                "chat_id": CHAT_ID,
+                "text": cleaned[:4096],
+                "disable_web_page_preview": True
+            })
+
+        if success:
+            sent_count += 1
+
+    print("──────────────────────────────────")
+    if sent_count > 0:
+        print(f"🚀 تعداد {sent_count} پست کنداکتور امروز با موفقیت ارسال شد.")
+    else:
+        print("ℹ️ پست کنداکتور جدیدی مربوط به امروز یافت نشد.")
 
 if __name__ == "__main__":
     main()
