@@ -1,0 +1,50 @@
+name: MAJIX Football Report
+
+on:
+  schedule:
+    # اجرا هر شب راس ساعت ۲۲:۰۰ ایران (18:30 UTC)
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Arabic & Persian Font System
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-vazirmatn libraqm0 libfribidi0
+
+      - name: Install Python Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Restore Football Message Cache
+        uses: actions/cache@v4
+        with:
+          path: state/football_message_id.json
+          key: majix-football-state-${{ github.run_id }}
+          restore-keys: |
+            majix-football-state-
+
+      - name: Execute Football Reporter
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python majix_football_report.py
+
+      - name: Save Football Message Cache
+        uses: actions/cache@v4
+        if: always()
+        with:
+          path: state/football_message_id.json
+          key: majix-football-state-${{ github.run_id }}
