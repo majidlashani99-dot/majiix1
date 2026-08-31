@@ -1,0 +1,32 @@
+name: Auto Forward LiveScore Posts
+
+on:
+  schedule:
+    # ساعت ۰۰:۱۵ به وقت تهران = ۲۰:۴۵ به وقت UTC
+    - cron: '45 20 * * *'
+  workflow_dispatch: # امکان تست دستی با زدن یک دکمه
+
+jobs:
+  forward_posts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Forwarder Script
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python forwarder.py
