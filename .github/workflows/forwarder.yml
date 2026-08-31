@@ -4,7 +4,7 @@ on:
   schedule:
     # ساعت ۰۰:۱۵ به وقت تهران = ۲۰:۴۵ به وقت UTC
     - cron: '45 20 * * *'
-  workflow_dispatch: # امکان تست دستی با زدن یک دکمه
+  workflow_dispatch: # اجرای دستی
 
 jobs:
   forward_posts:
@@ -22,7 +22,7 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install requests beautifulsoup4
 
       - name: Run Forwarder Script
         env:
