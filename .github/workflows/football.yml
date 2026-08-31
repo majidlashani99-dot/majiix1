@@ -2,32 +2,47 @@ name: MAJIX Football Report
 
 on:
   schedule:
-    # اجرا هر شب راس ساعت ۲۲:۰۰ ایران (18:30 UTC)
-    - cron: '30 18 * * *'
+    # ساعت 22:00 ایران معادل 18:30 UTC
+    - cron: "30 18 * * *"
+
+  # امکان اجرای دستی از تب Actions
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   report:
+    name: Generate and Send Football Report
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set Up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+          cache: "pip"
 
-      - name: Install Arabic & Persian Font System
+      - name: Install Persian Fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y fonts-vazirmatn libraqm0 libfribidi0
+          sudo apt-get install -y fonts-vazirmatn fonts-dejavu-core libraqm0 libfribidi0
 
       - name: Install Python Dependencies
         run: |
-          pip install requests pillow arabic-reshaper beautifulsoup4 lxml
+          python -m pip install --upgrade pip
+          python -m pip install requests pillow arabic-reshaper beautifulsoup4 lxml
 
-      - name: Restore Football Message Cache
+      - name: Create Required Directories
+        run: |
+          mkdir -p state
+          mkdir -p output
+
+      - name: Restore Football Message State
         uses: actions/cache@v4
         with:
           path: state/football_message_id.json
@@ -35,16 +50,21 @@ jobs:
           restore-keys: |
             majix-football-state-
 
+      - name: Verify Python Script
+        run: |
+          echo "Repository files:"
+          ls -la
+
+          if [ ! -f "majix_football.py" ]; then
+            echo "ERROR: majix_football.py was not found in the repository root."
+            exit 1
+          fi
+
+          python -m py_compile majix_football.py
+
       - name: Execute Football Reporter
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python majix_football.py
-
-      - name: Save Football Message Cache
-        uses: actions/cache@v4
-        if: always()
-        with:
-          path: state/football_message_id.json
-          key: majix-football-state-${{ github.run_id }}
