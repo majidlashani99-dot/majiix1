@@ -2,9 +2,9 @@ name: Daily Conductor Forwarder
 
 on:
   schedule:
-    # ساعت ۹:۳۰ صبح به وقت ایران (UTC 06:00)
+    # ساعت 06:00 به وقت UTC برابر با 09:30 صبح به وقت ایران
     - cron: '0 6 * * *'
-  workflow_dispatch: # امکان اجرای دستی در هر لحظه
+  workflow_dispatch:
 
 jobs:
   check_and_forward:
