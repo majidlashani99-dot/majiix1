@@ -40,7 +40,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python majix_football_report.py
+          python majix_football.py
 
       - name: Save Football Message Cache
         uses: actions/cache@v4
