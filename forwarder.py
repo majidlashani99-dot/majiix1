@@ -11,7 +11,7 @@ SOURCE_CHANNEL = os.getenv("SOURCE_CHANNEL", "SPORTinoTV").strip().lstrip("@")
 FILTER_TEXT = os.getenv("FILTER_TEXT", "کنداکتور").strip()
 
 REQUEST_TIMEOUT = 30
-MAX_PAGES = 8  # جستجوی عمیق در ۸ صفحه گذشته کانال
+MAX_PAGES = 8
 IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 def normalize_text(text: str) -> str:
@@ -34,13 +34,12 @@ def clean_caption(text: str) -> str:
 
 def is_recent_or_today(time_elem) -> bool:
     if not time_elem or not time_elem.get("datetime"):
-        return True  # اگر تایم نبود برای اطمینان رد نکنیم
+        return True
     try:
         dt_str = time_elem["datetime"]
         post_dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
         now_utc = datetime.now(timezone.utc)
         
-        # اگر در ۲۴ ساعت گذشته بوده باشد
         if (now_utc - post_dt).total_seconds() <= 86400:
             return True
         post_dt_iran = post_dt.astimezone(IRAN_TZ)
@@ -52,12 +51,9 @@ def extract_photo_url(message) -> str | None:
     photo_elem = message.find("a", class_="tgme_widget_message_photo_wrap")
     if not photo_elem:
         return None
-    style = photo_elem.get/120.0.0.0 Safari/537.36",
-        "Accept-Language": "fa,en-US;q=0.9,en;q=0.8",
-    }
-    
-    all_messages = []
-    base_url = f"https://t. if match else None
+    style = photo_elem.get("style", "")
+    match = re.search(r"background-image\s*:\s*url\(['\"]?([^'\")]+)['\"]?\)", style)
+    return match.group(1).strip() if match else None
 
 def send_telegram(method: str, payload: dict) -> bool:
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
@@ -143,13 +139,11 @@ def main():
     filter_norm = normalize_text(FILTER_TEXT)
 
     for msg in messages:
-        # دریافت کل متن داخل المان پیام (هم متن هم کپشن تصویر)
         raw_text = msg.get_text(separator=" ", strip=True)
         norm_text = normalize_text(raw_text)
         time_elem = msg.find("time")
 
         if (filter_norm in norm_text or "کنداکتور" in norm_text) and is_recent_or_today(time_elem):
-            # پیدا کردن المان مستقیم کپشن یا متن اصلی
             text_elem = msg.select_one("div.tgme_widget_message_text")
             extracted_text = text_elem.get_text(separator="\n", strip=True) if text_elem else raw_text
             matched_posts.append((msg, extracted_text))
