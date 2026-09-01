@@ -1,0 +1,30 @@
+name: Daily Sports Conductor
+
+on:
+  schedule:
+    - cron: '00 06 * * *'  # هر روز ساعت 09:30 صبح به وقت ایران
+  workflow_dispatch:
+
+jobs:
+  run-conductor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Python
+        uses: actions/setup-python@v5.3.0
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install requests beautifulsoup4
+
+      - name: Run Script
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          python daily_conductor.py
