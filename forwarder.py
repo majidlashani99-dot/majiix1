@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import io
 from datetime import datetime, timezone, timedelta
 import requests
 from bs4 import BeautifulSoup
@@ -50,14 +51,26 @@ def get_today_jalali_keywords():
     ]
     return keywords, f"{day_fa} {month_name} {jy}"
 
-def send_telegram_photo(photo_url: str, caption: str):
+def upload_and_send_photo(photo_url: str, caption: str):
+    """دانلود باینری عکس و آپلود مستقیم به تلگرام برای جلوگیری از ارور HTTP URL content"""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    }
+    img_resp = requests.get(photo_url, headers=headers, timeout=30)
+    
+    if img_resp.status_code != 200:
+        print(f"⚠️ خطا در دانلود مستقیم عکس (وضعیت {img_resp.status_code})، تلاش برای ارسال متن...")
+        return send_telegram_message(caption)
+
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    payload = {
+    files = {
+        "photo": ("conductor.jpg", io.BytesIO(img_resp.content), "image/jpeg")
+    }
+    data = {
         "chat_id": TARGET_CHAT_ID,
-        "photo": photo_url,
         "caption": caption
     }
-    res = requests.post(url, json=payload, timeout=25)
+    res = requests.post(url, data=data, files=files, timeout=35)
     return res.json()
 
 def send_telegram_message(text: str):
@@ -94,7 +107,7 @@ def main():
 
     matched_post = None
 
-    # بررسی پیام‌ها از آخر به اول
+    # جستجوی پیام از جدیدترین به قدیمی‌ترین
     for msg in reversed(messages):
         msg_elem = msg.select_one(".tgme_widget_message")
         if not msg_elem:
@@ -104,7 +117,7 @@ def main():
         text_elem = msg.select_one(".tgme_widget_message_text")
         text = text_elem.get_text(separator="\n", strip=True) if text_elem else ""
 
-        # بررسی عکس داخل پیام
+        # استخراج عکس
         photo_elem = msg.select_one(".tgme_widget_message_photo_wrap")
         photo_url = ""
         if photo_elem:
@@ -113,7 +126,6 @@ def main():
             if match:
                 photo_url = match.group(1)
 
-        # شرایط کنداکتور: تطابق با تاریخ امروز و عدم وجود کلمه نتایج
         is_today = any(kw in text for kw in keywords)
         is_result = "نتایج" in text or "دیروز" in text
         is_conductor = ("برنامه مسابقات" in text or "پخش_زنده" in text or "پخش زنده" in text or "مسابقات مهم" in text)
@@ -126,9 +138,9 @@ def main():
             }
             break
 
-    # اگر پستی با تاریخ امروز پیدا نشد، آخرین پست برنامه مسابقات را به عنوان فال‌بک انتخاب کن
+    # فال‌بک در صورت عدم تطابق نام تاریخ
     if not matched_post:
-        print("⚠️ پست دقیق با تاریخ امروز پیدا نشد، در حال جستجوی آخرین پست معتبر مسابقات...")
+        print("⚠️ پست دقیق با تاریخ امروز پیدا نشد، بررسی آخرین پست برنامه مسابقات...")
         for msg in reversed(messages):
             msg_elem = msg.select_one(".tgme_widget_message")
             if not msg_elem:
@@ -153,21 +165,18 @@ def main():
 
     print(f"🚀 در حال ارسال پست: {matched_post['id']}")
     
-    # ارسال به تلگرام
+    # ارسال به تلگرام با آپلود مستقیم باینری
     if matched_post["photo"]:
         caption_text = matched_post["text"] if matched_post["text"] else f"🔹 کنداکتور مسابقات امروز ({jalali_today})"
-        res = send_telegram_photo(matched_post["photo"], caption_text)
+        res = upload_and_send_photo(matched_post["photo"], caption_text)
     else:
         res = send_telegram_message(matched_post["text"])
 
-    print(f"📩 پاسخ تلگرام: {res}")
+    print(f"📩 پاسخ نهایی تلگرام: {res}")
     if res.get("ok"):
-        print("✅ پست با موفقیت به کانال ارسال شد!")
+        print("✅ پست و عکس با موفقیت کامل به کانال تلگرام ارسال شد!")
     else:
         print(f"❌ خطا از طرف تلگرام: {res.get('description')}")
-        # بررسی دلیل رایج: ادمین نبودن ربات در کانال
-        if "chat not found" in str(res).lower() or "forbidden" in str(res).lower():
-            print("👉 مجید جان، مطمئن شو ربات تلگرام در کانال/گروه مقصد به عنوان ادمین (با دسترسی Post Messages) اضافه شده باشد.")
         sys.exit(1)
 
 if __name__ == "__main__":
