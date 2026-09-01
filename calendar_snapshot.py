@@ -4,7 +4,8 @@ import asyncio
 import requests
 from playwright.async_api import async_playwright
 
-BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
+# بررسی هر دو حالت نام‌گذاری توکن و چت‌آیدی برای سازگاری ۱۰۰٪
+BOT_TOKEN = os.environ.get("TG_TOKEN") or os.environ.get("TG_BOT_TOKEN")
 CHAT_ID = os.environ.get("TG_CHAT_ID")
 OUTPUT_IMAGE = "calendar_today.png"
 
@@ -12,7 +13,6 @@ async def capture_calendar_box():
     print("🌐 Launching headless browser...")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        # تنظیم ابعاد دسکتاپ و Scale Factor برای خروجی باکیفیت
         context = await browser.new_context(
             viewport={"width": 1280, "height": 800},
             device_scale_factor=2,
@@ -23,8 +23,7 @@ async def capture_calendar_box():
         print("⏳ Loading Time.ir...")
         await page.goto("https://www.time.ir/", wait_until="networkidle", timeout=60000)
 
-        # پیدا کردن کادر اصلی تاریخ و تقویم
-        # این سلکتورها باکس سفید بالای تایم دات آی‌آر را هدف می‌گیرند
+        # سلکتورهای کادر تاریخ بالای سایت time.ir
         selectors = [
             ".today-container",
             ".dayDateWrapper",
@@ -42,8 +41,7 @@ async def capture_calendar_box():
                 break
         
         if not target_element:
-            # اگر سلکتور خاصی مچ نشد، بخش هدر تاریخ را برمی‌دارد
-            print("⚠️ Specific selector not found, attempting generic container...")
+            print("⚠️ Specific selector not found, using generic container...")
             target_element = await page.query_selector("div.dates") or await page.query_selector("section.today")
 
         if target_element:
@@ -82,7 +80,7 @@ def send_to_telegram():
 
 if __name__ == "__main__":
     if not BOT_TOKEN or not CHAT_ID:
-        print("❌ Error: TG_BOT_TOKEN or TG_CHAT_ID is missing in environment variables.")
+        print("❌ Error: TG_TOKEN/TG_BOT_TOKEN or TG_CHAT_ID is missing.")
         sys.exit(1)
         
     asyncio.run(capture_calendar_box())
