@@ -2,7 +2,7 @@ name: Daily Time.ir Calendar Snapshot
 
 on:
   schedule:
-    # ساعت 05:00 صبح ایران = ساعت 01:30 UTC
+    # ساعت 05:00 صبح ایران = 01:30 UTC
     - cron: '30 1 * * *'
   workflow_dispatch:
 
