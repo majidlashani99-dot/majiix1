@@ -2,6 +2,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 import jdatetime
+import pytz
 
 # کتابخانه‌های PDF و فارسی
 from reportlab.lib.pagesizes import letter, landscape
@@ -21,15 +22,22 @@ def fix_text(text):
     return get_display(reshaped)
 
 def get_persian_date():
-    """دریافت تاریخ امروز به صورت شمسی و حروفی"""
-    days = ["دوشنبه", "سه‌شنبه", "چهارشنبه", "پنج‌شنبه", "جمعه", "شنبه", "یک‌شنبه"]
+    """دریافت دقیق تاریخ و روز هفته بر اساس ساعت و تقویم تهران"""
+    tehran_tz = pytz.timezone('Asia/Tehran')
+    # تبدیل تاریخ روز جاری به تقویم شمسی بر مبنای افق تهران
+    now_tehran = jdatetime.datetime.now(tehran_tz)
+    
+    # اسامی استاندارد روزهای هفته در jdatetime (شنبه = 0 تا جمعه = 6)
+    days = ["شنبه", "یک‌شنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنج‌شنبه", "جمعه"]
     months = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"]
     
-    today = jdatetime.date.today()
-    day_name = days[today.weekday()]
-    month_name = months[today.month - 1]
+    day_name = days[now_tehran.weekday()]
+    month_name = months[now_tehran.month - 1]
     
-    return f"{day_name} {today.day} {month_name} {today.year}", today.strftime("%Y/%m/%d")
+    date_text_str = f"{day_name} {now_tehran.day} {month_name} {now_tehran.year}"
+    date_num_str = now_tehran.strftime("%Y/%m/%d")
+    
+    return date_text_str, date_num_str
 
 def fetch_data():
     url = "https://ledc.ir/%D8%AE%D8%A7%D9%85%D9%88%D8%B4%DB%8C%D9%87%D8%A7%DB%8C-%D8%A8%D8%B1%D9%86%D8%A7%D9%85%D9%87-%D8%B1%DB%8C%D8%B2%DB%8C-%D8%B4%D8%AF%D9%87"
@@ -47,6 +55,10 @@ def fetch_data():
 
     soup = BeautifulSoup(response.text, 'html.parser')
     rows_data = []
+    headers_saved = False
+
+    # لیست شهرهای متفرقه جهت جلوگیری از تداخل
+    other_cities = ["ازنا", "بروجرد", "خرم آباد", "خرم‌آباد", "الیگودرز", "کوهدشت", "پلدختر", "الشتر", "نورآباد", "چگنی"]
 
     # جستجوی تمام جداول
     for table in soup.find_all('table'):
@@ -54,14 +66,27 @@ def fetch_data():
         for tr in rows:
             tds = tr.find_all(['td', 'th'])
             row_text = [td.get_text(strip=True) for td in tds]
-            # فیلتر فقط ردیف‌های مربوط به دورود
-            if any("دورود" in text for text in row_text):
+            
+            if not row_text or len(row_text) < 3:
+                continue
+
+            # استخراج و ذخیره هدر اصلی جدول در صورت وجود
+            if not headers_saved and any(h in row_text for h in ["شهرستان", "تاریخ", "ساعت", "منطقه", "فیدر"]):
+                rows_data.append(row_text)
+                headers_saved = True
+                continue
+
+            # فیلتر اختصاصی: حتماً کلمه «دورود» وجود داشته باشد و شامل سایر شهرها نباشد
+            is_doroud = any("دورود" in text for text in row_text)
+            has_conflict = any(any(city in text for city in other_cities) for text in row_text)
+            
+            if is_doroud and not has_conflict:
                 rows_data.append(row_text)
 
     return rows_data
 
 def generate_pdf(data, date_text_str, filename="Doroud_Outage_Report.pdf"):
-    # دانلود فونت وزیرمتن
+    # دانلود فونت فارسی Vazirmatn در صورت عدم وجود
     font_url = "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Regular.ttf"
     if not os.path.exists("Vazirmatn.ttf"):
         print("در حال دانلود فونت فارسی Vazirmatn...")
@@ -71,7 +96,7 @@ def generate_pdf(data, date_text_str, filename="Doroud_Outage_Report.pdf"):
 
     pdfmetrics.registerFont(TTFont('Vazirmatn', 'Vazirmatn.ttf'))
 
-    # ساخت داکیومنت در حالت افقی (Landscape) برای جا شدن جدول
+    # ساخت فایل PDF افقی (Landscape)
     doc = SimpleDocTemplate(
         filename,
         pagesize=landscape(letter),
@@ -104,23 +129,22 @@ def generate_pdf(data, date_text_str, filename="Doroud_Outage_Report.pdf"):
 
     elements = []
 
-    # تیتر گزارش همراه با تاریخ روز
+    # تیتر گزارش
     title_p = Paragraph(fix_text(f"برنامه خاموشی‌های برق شهرستان دورود - {date_text_str}"), title_style)
     elements.append(title_p)
     elements.append(Spacer(1, 15))
 
-    if not data:
+    # اگر فقط هدر بود یا کلاً دیتایی نبود
+    if len(data) <= 1:
         empty_msg = Paragraph(fix_text("هیچ برنامه خاموشی جدیدی برای شهرستان دورود در تاریخ امروز ثبت نشده است."), title_style)
         elements.append(empty_msg)
     else:
-        # پردازش و ساخت ردیف‌های جدول
         table_rows = []
         for row in data:
             formatted_row = [Paragraph(fix_text(cell), cell_style) for cell in row]
-            # در زبان فارسی راست‌به‌چپ، ستون‌ها معکوس می‌شوند
+            # معکوس کردن ستون‌ها جهت چیدمان درست راست به چپ (RTL)
             table_rows.append(formatted_row[::-1])
 
-        # ایجاد جدول
         report_table = Table(table_rows, repeatRows=1)
         report_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0284c7")),
@@ -143,15 +167,14 @@ def send_to_telegram(pdf_file, date_text_str, date_num_str):
     chat_id = os.environ.get("TG_CHAT_ID")
 
     if not bot_token or not chat_id:
-        print("خطا: مقادیر TG_TOKEN یا TG_CHAT_ID در متغیرها تنظیم نشده‌اند.")
+        print("خطا: مقادیر TG_TOKEN یا TG_CHAT_ID در سکرت‌ها تنظیم نشده‌اند.")
         return
 
-    # پیام زیر فایل به همراه تاریخ روز
+    # پیام زیر فایل (کپشن کاملاً تمیز بدون آیدی کانال)
     caption = (
         f"⚡️ <b>برنامه خاموشی برق شهرستان دورود</b>\n\n"
         f"📅 تاریخ: <b>{date_text_str}</b> ({date_num_str})\n\n"
-        f"⚠️ لطفاً جهت جلوگیری از آسیب به وسایل برقی، تمهیدات لازم را در ساعات اعلامی در نظر داشته باشید.\n\n"
-        f"🆔 @Doroudcity"
+        f"⚠️ لطفاً جهت جلوگیری از آسیب به وسایل برقی، تمهیدات لازم را در ساعات اعلامی در نظر داشته باشید."
     )
 
     url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
