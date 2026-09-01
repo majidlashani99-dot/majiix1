@@ -7,7 +7,8 @@ import requests
 from bs4 import BeautifulSoup
 
 BOT_TOKEN = os.getenv("TG_TOKEN")
-TARGET_CHAT_ID = os.getenv("TG_CHAT_ID")
+TARGET_CHAT_ID = os.getenv("TG_CHAT_ID", "@majiix1")
+MY_CHANNEL_ID = "@majiix1"
 SOURCE_CHANNEL = "tvlivefootball"
 IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
@@ -51,15 +52,41 @@ def get_today_jalali_keywords():
     ]
     return keywords, f"{day_fa} {month_name} {jy}"
 
+def clean_and_brand_caption(text: str, jalali_today: str) -> str:
+    """حذف آیدی‌ها و لینک‌های کانال مبدأ و جایگزینی با آیدی کانال شما"""
+    if not text:
+        return f"⚽️ کنداکتور پخش زنده مسابقات ({jalali_today})\n\n🆔 {MY_CHANNEL_ID}"
+
+    # حذف لینک‌های t.me و telegram.me
+    text = re.sub(r'https?://(?:www\.)?t\.me/[a-zA-Z0-9_+/]+', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'https?://(?:www\.)?telegram\.me/[a-zA-Z0-9_+/]+', '', text, flags=re.IGNORECASE)
+    
+    # حذف تمام آیدی‌های مبدأ (شامل @tvlivefootball و ...)
+    text = re.sub(r'@[a-zA-Z0-9_]+', '', text)
+    
+    # پاکسازی خطوط خالی پشت سر هم
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    cleaned_body = '\n'.join(lines)
+    
+    # اضافه کردن آیدی نهایی شما
+    final_caption = f"{cleaned_body}\n\n🆔 {MY_CHANNEL_ID}"
+    
+    # محدودیت تلگرام برای کپشن عکس ۱۰۲۴ کاراکتر است
+    if len(final_caption) > 1020:
+        cutoff = 1010 - len(f"\n...\n\n🆔 {MY_CHANNEL_ID}")
+        final_caption = f"{cleaned_body[:cutoff]}\n...\n\n🆔 {MY_CHANNEL_ID}"
+        
+    return final_caption
+
 def upload_and_send_photo(photo_url: str, caption: str):
-    """دانلود باینری عکس و آپلود مستقیم به تلگرام برای جلوگیری از ارور HTTP URL content"""
+    """دانلود باینری عکس و آپلود مستقیم به تلگرام"""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     }
     img_resp = requests.get(photo_url, headers=headers, timeout=30)
     
     if img_resp.status_code != 200:
-        print(f"⚠️ خطا در دانلود مستقیم عکس (وضعیت {img_resp.status_code})، تلاش برای ارسال متن...")
+        print(f"⚠️ خطا در دانلود عکس (کد {img_resp.status_code})، ارسال به صورت متنی...")
         return send_telegram_message(caption)
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
@@ -163,18 +190,20 @@ def main():
         print("❌ هیچ پستی برای ارسال پیدا نشد.")
         sys.exit(1)
 
-    print(f"🚀 در حال ارسال پست: {matched_post['id']}")
+    print(f"🚀 در حال آماده‌سازی و ارسال پست: {matched_post['id']}")
     
-    # ارسال به تلگرام با آپلود مستقیم باینری
+    # تولید کپشن اختصاصی با آیدی @majiix1
+    final_caption = clean_and_brand_caption(matched_post["text"], jalali_today)
+
+    # ارسال به تلگرام
     if matched_post["photo"]:
-        caption_text = matched_post["text"] if matched_post["text"] else f"🔹 کنداکتور مسابقات امروز ({jalali_today})"
-        res = upload_and_send_photo(matched_post["photo"], caption_text)
+        res = upload_and_send_photo(matched_post["photo"], final_caption)
     else:
-        res = send_telegram_message(matched_post["text"])
+        res = send_telegram_message(final_caption)
 
     print(f"📩 پاسخ نهایی تلگرام: {res}")
     if res.get("ok"):
-        print("✅ پست و عکس با موفقیت کامل به کانال تلگرام ارسال شد!")
+        print(f"✅ پست با موفقیت به کانال {TARGET_CHAT_ID} ارسال شد!")
     else:
         print(f"❌ خطا از طرف تلگرام: {res.get('description')}")
         sys.exit(1)
