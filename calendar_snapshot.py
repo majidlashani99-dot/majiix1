@@ -1,77 +1,116 @@
 import os
 import sys
-import asyncio
 import requests
-from playwright.async_api import async_playwright
+from bs4 import BeautifulSoup
 
-# بررسی هر دو حالت نام‌گذاری توکن و چت‌آیدی برای سازگاری ۱۰۰٪
 BOT_TOKEN = os.environ.get("TG_TOKEN") or os.environ.get("TG_BOT_TOKEN")
 CHAT_ID = os.environ.get("TG_CHAT_ID")
-OUTPUT_IMAGE = "calendar_today.png"
 
-async def capture_calendar_box():
-    print("🌐 Launching headless browser...")
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            device_scale_factor=2,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-        page = await context.new_page()
-        
-        print("⏳ Loading Time.ir...")
-        await page.goto("https://www.time.ir/", wait_until="networkidle", timeout=60000)
-
-        # سلکتورهای کادر تاریخ بالای سایت time.ir
-        selectors = [
-            ".today-container",
-            ".dayDateWrapper",
-            ".wrapper.today-wrapper",
-            "#ctl00_cphTop_pnlToday",
-            ".panel-today"
-        ]
-        
-        target_element = None
-        for sel in selectors:
-            el = await page.query_selector(sel)
-            if el:
-                target_element = el
-                print(f"🎯 Target element found with selector: {sel}")
-                break
-        
-        if not target_element:
-            print("⚠️ Specific selector not found, using generic container...")
-            target_element = await page.query_selector("div.dates") or await page.query_selector("section.today")
-
-        if target_element:
-            await target_element.screenshot(path=OUTPUT_IMAGE)
-            print(f"✅ Screenshot saved successfully as {OUTPUT_IMAGE}")
-        else:
-            print("📸 Taking top viewport screenshot as fallback...")
-            await page.screenshot(path=OUTPUT_IMAGE, clip={"x": 150, "y": 80, "width": 980, "height": 320})
-            
-        await browser.close()
-
-def send_to_telegram():
-    if not os.path.exists(OUTPUT_IMAGE):
-        print("❌ Image file does not exist!")
+def fetch_calendar_data():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    url = "https://www.time.ir/"
+    
+    print("🌐 Fetching data from Time.ir...")
+    response = requests.get(url, headers=headers, timeout=20)
+    response.encoding = 'utf-8'
+    
+    if response.status_code != 200:
+        print(f"❌ Failed to fetch page. Status: {response.status_code}")
         sys.exit(1)
-
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    caption = "🗓 **تقویم و اوقات امروز**\n\n🆔 @majiix1"
-
-    print("🚀 Sending snapshot to Telegram...")
-    with open(OUTPUT_IMAGE, "rb") as img:
-        files = {"photo": img}
-        data = {
-            "chat_id": CHAT_ID,
-            "caption": caption,
-            "parse_mode": "Markdown"
-        }
-        response = requests.post(url, files=files, data=data, timeout=30)
         
+    soup = BeautifulSoup(response.text, 'html.parser')
+    
+    # استخراج تاریخ شمسی
+    shamsi_day = soup.select_one(".showDate .dayName")
+    shamsi_num = soup.select_one(".showDate .dayNumber")
+    shamsi_month = soup.select_one(".showDate .monthName")
+    shamsi_year = soup.select_one(".showDate .year")
+    
+    shamsi_str = ""
+    if shamsi_num and shamsi_month:
+        day_name = shamsi_day.get_text(strip=True) if shamsi_day else ""
+        day_num = shamsi_num.get_text(strip=True)
+        month_name = shamsi_month.get_text(strip=True)
+        year_name = shamsi_year.get_text(strip=True) if shamsi_year else ""
+        shamsi_str = f"{day_name} {day_num} {month_name} {year_name}".strip()
+    
+    # استخراج تاریخ میلادی و قمری
+    gregorian_str = ""
+    hijri_str = ""
+    other_dates = soup.select(".dates .otherGregorian, .dates .otherHijri, .dates div")
+    for d in other_dates:
+        text = d.get_text(" ", strip=True)
+        if any(month in text for month in ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]):
+            gregorian_str = text
+        elif any(m in text for m in ["محرم", "صفر", "ربيع", "جمادى", "رجب", "شعبان", "رمضان", "شوال", "ذو القعدة", "ذو الحجة", "ذوالقعدة", "ذوالحجة"]):
+            hijri_str = text
+
+    # استخراج برج فلکی / نماد سال (در صورت وجود)
+    zodiac_el = soup.select_one(".showDate .season") or soup.select_one(".showDate .zodiac")
+    zodiac_str = zodiac_el.get_text(strip=True) if zodiac_el else ""
+
+    # استخراج مناسبت‌ها و رویدادهای روز
+    events = []
+    events_list = soup.select(".list-unstyled li, .eventsContainer li, ul.eventList li")
+    for li in events_list:
+        ev_text = li.get_text(" ", strip=True)
+        # حذف متون اضافه یا تبلیغاتی
+        if ev_text and len(ev_text) > 3 and not "تبلیغ" in ev_text:
+            is_holiday = "eventHoliday" in li.get("class", []) or "holiday" in li.get("class", [])
+            prefix = "🔴" if is_holiday else "▫️"
+            events.append(f"{prefix} {ev_text}")
+
+    # حذف تکراری‌ها در مناسبت‌ها
+    events = list(dict.fromkeys(events))
+    
+    return {
+        "shamsi": shamsi_str,
+        "gregorian": gregorian_str,
+        "hijri": hijri_str,
+        "zodiac": zodiac_str,
+        "events": events
+    }
+
+def format_telegram_message(data):
+    msg = "☀️ **تقویم و رویدادهای روز**\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    if data["shamsi"]:
+        msg += f"🇮🇷 **خورشیدی:** `{data['shamsi']}`\n"
+    if data["gregorian"]:
+        msg += f"🌐 **میلادی:** `{data['gregorian']}`\n"
+    if data["hijri"]:
+        msg += f"🌙 **قمری:** `{data['hijri']}`\n"
+    if data["zodiac"]:
+        msg += f"✨ **برج فلکی:** `{data['zodiac']}`\n"
+        
+    msg += "\n📌 **مناسبت‌ها و رویدادها:**\n"
+    if data["events"]:
+        for ev in data["events"]:
+            msg += f"{ev}\n"
+    else:
+        msg += "▫️ _امروز مناسبت ثبت‌شده‌ای ندارد._\n"
+        
+    msg += "\n━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "🆔 **@majiix1**"
+    
+    return msg
+
+def send_to_telegram(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
+    
+    print("🚀 Sending text to Telegram...")
+    response = requests.post(url, json=payload, timeout=20)
     res_json = response.json()
+    
     if response.status_code == 200 and res_json.get("ok"):
         print("🎉 Telegram message delivered successfully!")
     else:
@@ -83,5 +122,7 @@ if __name__ == "__main__":
         print("❌ Error: TG_TOKEN/TG_BOT_TOKEN or TG_CHAT_ID is missing.")
         sys.exit(1)
         
-    asyncio.run(capture_calendar_box())
-    send_to_telegram()
+    calendar_data = fetch_calendar_data()
+    formatted_msg = format_telegram_message(calendar_data)
+    print("\n--- Message Preview ---\n", formatted_msg, "\n-----------------------")
+    send_to_telegram(formatted_msg)
