@@ -1,21 +1,21 @@
-name: Daily Live Matches Conductor
+name: Auto Conductor Daily Forwarder
 
 on:
   schedule:
-    # ساعت 08:53 صبح ایران = ساعت 05:23 صبح به وقت جهانی (UTC)
-    - cron: '23 05 * * *'
+    # ساعت 11:46 صبح ایران = 08:16 صبح UTC
+    - cron: '16 08 * * *'
   workflow_dispatch:
 
 jobs:
-  conductor-report:
+  forward-conductor:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v5.3.0
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -24,9 +24,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4
 
-      - name: Fetch and Send Conductor Report
+      - name: Run Conductor Forwarder
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
-          python daily_conductor.py
+          python forwarder.py
