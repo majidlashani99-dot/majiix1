@@ -91,28 +91,6 @@ def make_image(headers_row, rows, date_text):
     TITLE_H = 120
     H = TITLE_H + HEADER_H + (ROW_H * len(rows)) + 30
 
-    bg = (15, 23, 42)          "{len(rows)} ردیف داده استخراج شد.")
-    return headers_row, rows
-
-def download_font():
-    """دانلود فونت وزیرمتن"""
-    base = "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/"
-    for name in ["Vazirmatn-Bold.ttf", "Vazirmatn-Regular.ttf"]:
-        if not os.path.exists(name):
-            print(f"در حال دانلود فونت {name}...")
-            f = requests.get(base + name)
-            with open(name, "wb") as out:
-                out.write(f.content)
-
-def make_image(headers_row, rows, date_text):
-    download_font()
-
-    W = 920
-    ROW_H = 58
-    HEADER_H = 62
-    TITLE_H = 120
-    H = TITLE_H + HEADER_H + (ROW_H * len(rows)) + 30
-
     bg = (15, 23, 42)          # پس‌زمینه سرمه‌ای تیره
     header_bg = (2, 132, 199)  # هدر آبی
     row_bg1 = (30, 41, 59)
@@ -123,7 +101,19 @@ def make_image(headers_row, rows, date_text):
     img = Image.new('RGB', (W, H), bg)
     draw = ImageDraw.Draw(img)
 
-    ((W - 50, y + HEADER_H // 2), fix("نام دارایی"), font=f_header, fill=text_light, anchor="rm", direction="rtl")
+    f_title = ImageFont.truetype("Vazirmatn-Bold.ttf", 32)
+    f_header = ImageFont.truetype("Vazirmatn-Bold.ttf", 22)
+    f_cell = ImageFont.truetype("Vazirmatn-Regular.ttf", 21)
+    f_date = ImageFont.truetype("Vazirmatn-Regular.ttf", 18)
+
+    # سرتیتر و تاریخ
+    draw.text((W // 2, 45), fix("قیمت لحظه‌ای طلا، سکه و ارز"), font=f_title, fill=accent, anchor="mm", direction="rtl")
+    draw.text((W // 2, 85), fix(date_text), font=f_date, fill=(148, 163, 184), anchor="mm", direction="rtl")
+
+    # ردیف هدر
+    y = TITLE_H
+    draw.rectangle([25, y, W - 25, y + HEADER_H], fill=header_bg)
+    draw.text((W - 50, y + HEADER_H // 2), fix("نام دارایی"), font=f_header, fill=text_light, anchor="rm", direction="rtl")
     draw.text((W // 2, y + HEADER_H // 2), fix("قیمت (تومان)"), font=f_header, fill=text_light, anchor="mm", direction="rtl")
     draw.text((60, y + HEADER_H // 2), fix("تغییرات"), font=f_header, fill=text_light, anchor="lm")
 
@@ -141,13 +131,18 @@ def make_image(headers_row, rows, date_text):
             # قیمت (وسط‌چین)
             draw.text((W // 2, y + ROW_H // 2), str(row[1]), font=f_cell, fill=text_light, anchor="mm")
         
-        # درصد تغییرات (چپ‌چین)
-        change = next((c for c in row[2:] if '%' in c), "")
-        if change:
-            c_color = (74, 222, 128) if '+' in change else (248, 113, 113)
-            if '+' not in change and '-' not in change:
-                c_color = (148, 163, 184)
+        # درصد 184)
             draw.text((60, y + ROW_H // 2), str(change), font=f_cell, fill=c_color, anchor="lm")
+
+        y += ROW_H
+
+    img.save(IMG_FILE)
+    print(f"تصویر با موفقیت ساخته شد: {IMG_FILE}")
+    return IMG_FILE
+
+def send_to_telegram(image_file, date_text):
+    bot_token = os.environ.get("TG_TOKEN")
+=f_cell, fill=c_color, anchor="lm")
 
         y += ROW_H
 
@@ -162,7 +157,6 @@ def send_to_telegram(image_file, date_text):
         print("خطا: TG_TOKEN یا TG_CHAT_ID تنظیم نشده است.")
         return
 
-    # کپشن ساده و مرتب
     caption = (
         f"<b>💰 قیمت لحظه‌ای طلا، سکه و ارز</b>\n\n"
         f"📅 {date_text}"
