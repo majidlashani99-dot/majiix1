@@ -1,9 +1,12 @@
-name: Gold & Dollar Price Reporter
+name: Gold and Currency Daily Report
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # اجرای دستی از گیت‌هاب
+  repository_dispatch:
+    types: [trigger-gold]
   schedule:
-    - cron: '30 5 * * *'
+    # 09:08 AM Iran Time (UTC+3:30) => 05:38 UTC
+    - cron: '38 5 * * *'
 
 jobs:
   build:
@@ -12,11 +15,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up System Dependencies for Arabic/Persian
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libraqm0 libfribidi0
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -24,7 +22,8 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install requests beautifulsoup4 pillow arabic-reshaper jdatetime
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 pillow arabic-reshaper jdatetime pytz
 
       - name: Run Script
         env:
@@ -37,6 +36,5 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gold-price-image
+          name: gold-dollar-report-image
           path: Gold_Dollar_Report.png
-
