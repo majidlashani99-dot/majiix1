@@ -1,12 +1,13 @@
-name: Daily Sports Conductor
+name: Daily Live Matches Conductor
 
 on:
   schedule:
-    - cron: '00 06 * * *'  # هر روز ساعت 09:30 صبح به وقت ایران
+    # ساعت 08:53 صبح ایران = ساعت 05:23 صبح به وقت جهانی (UTC)
+    - cron: '23 05 * * *'
   workflow_dispatch:
 
 jobs:
-  run-conductor:
+  conductor-report:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,9 +21,10 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install requests beautifulsoup4
 
-      - name: Run Script
+      - name: Fetch and Send Conductor Report
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
