@@ -5,22 +5,20 @@ from datetime import datetime, timezone, timedelta
 import requests
 from bs4 import BeautifulSoup
 
-# متغیرهای محیطی از سکرت‌ها
+# متغیرهای محیطی از Secrets
 BOT_TOKEN = os.getenv("TG_TOKEN")
 CHAT_ID = os.getenv("TG_CHAT_ID")
 SOURCE_CHANNEL = os.getenv("SOURCE_CHANNEL", "SPORTinoTV").strip().lstrip("@")
 FILTER_TEXT = os.getenv("FILTER_TEXT", "کنداکتور").strip()
 
 REQUEST_TIMEOUT = 30
-MAX_POSTS_TO_CHECK = 15
+MAX_POSTS_TO_CHECK = 30  # بررسی تا ۳۰ پست اخیر برای پوشش کامل صبح تا ساعت ۹:۱۷
 
-# محدوده زمانی ایران (UTC+3:30)
+# محدوده زمانی رسمی ایران (UTC+3:30)
 IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 def clean_caption(text: str) -> str:
-    """
-    حذف تمام آیدی‌ها و لینک‌ها بدون دستکاری به متن اصلی کپشن
-    """
+    """حذف تمام آیدی‌ها و لینک‌ها بدون دستکاری در متن اصلی کنداکتور"""
     if not text:
         return ""
     
@@ -29,17 +27,17 @@ def clean_caption(text: str) -> str:
     text = re.sub(r"www\.\S+", "", text, flags=re.IGNORECASE)
     text = re.sub(r"(?<!\w)t\.me/\S+", "", text, flags=re.IGNORECASE)
     
-    # حذف کامل آیدی‌ها مثل @SPORTinoTV یا هر منشن دیگر
+    # حذف کامل آیدی‌ها و منشن‌ها
     text = re.sub(r"@[A-Za-z0-9_]+", "", text)
     
-    # حذف خطوط خالی اضافی که ناشی از پاک شدن آیدی‌ها شده است
+    # حذف خطوط خالی اضافی
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return "\n".join(lines).strip()
 
 def is_today_post(time_elem) -> bool:
-    """بررسی تاریخ پست نسبت به تاریخ امروز ایران"""
+    """بررسی تاریخ انتشار پست نسبت به تاریخ امروز ایران"""
     if not time_elem or not time_elem.get("datetime"):
-        return True
+        return False
 
     try:
         dt_str = time_elem["datetime"]
@@ -49,10 +47,10 @@ def is_today_post(time_elem) -> bool:
         return post_dt_iran.date() == today_iran
     except Exception as e:
         print(f"⚠️ ارزیابی تاریخ با خطا مواجه شد: {e}")
-        return True
+        return False
 
 def contains_filter(text: str) -> bool:
-    """بررسی وجود کلمه کنداکتور در متن"""
+    """بررسی دقیق وجود کلمه کلیدی کنداکتور در متن"""
     if not text or not FILTER_TEXT:
         return False
     normalized_text = re.sub(r"\s+", " ", text).strip().casefold()
@@ -60,7 +58,7 @@ def contains_filter(text: str) -> bool:
     return normalized_filter in normalized_text
 
 def extract_photo_url(message) -> str | None:
-    """استخراج مستقیم تصویر پست با بالاترین کیفیت"""
+    """استخراج مستقیم آدرس تصویر با بالاترین کیفیت"""
     photo_elem = message.find("a", class_="tgme_widget_message_photo_wrap")
     if not photo_elem:
         return None
@@ -69,30 +67,30 @@ def extract_photo_url(message) -> str | None:
     return match.group(1).strip() if match else None
 
 def send_telegram(method: str, payload: dict) -> bool:
-    """ارسال امن پیام یا مدیا به ربات تلگرام"""
+    """ارسال امن پیام یا تصویر به ربات تلگرام"""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
     try:
         res = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
         res_data = res.json()
         if res_data.get("ok"):
-            print(f"✅ با موفقیت به کانال/گروه ارسال شد ({method})")
+            print(f"✅ با موفقیت به مقصد ارسال شد ({method})")
             return True
         else:
-            print(f"❌ خطای دریافت پاسخ از تلگرام: {res_data}")
+            print(f"❌ خطای تلگرام: {res_data}")
             return False
     except Exception as e:
-        print(f"❌ خطای شبکه در ارتباط با تلگرام: {e}")
+        print(f"❌ خطای اتصال به سرور تلگرام: {e}")
         return False
 
 def main():
     if not BOT_TOKEN or not CHAT_ID:
-        print("❌ مقادیر TG_TOKEN یا TG_CHAT_ID در گیت‌هاب یافت نشد.")
+        print("❌ متغیرهای TG_TOKEN یا TG_CHAT_ID در گیت‌هاب تنظیم نشده‌اند.")
         sys.exit(1)
 
-    today_str = datetime.now(IRAN_TZ).strftime("%Y-%m-%d")
-    print(f"📅 تاریخ فعلی پردازش (ایران): {today_str}")
-    print(f"📡 کانال منبع: https://t.me/s/{SOURCE_CHANNEL}")
-    print(f"🔍 فیلتر متن: «{FILTER_TEXT}»")
+    today_str = datetime.now(IRAN_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    print(f"📅 زمان اجرای اسکریپت (افق ایران): {today_str}")
+    print(f"📡 منبع: https://t.me/s/{SOURCE_CHANNEL}")
+    print(f"🔍 کلمه کلیدی: «{FILTER_TEXT}»")
 
     url = f"https://t.me/s/{SOURCE_CHANNEL}"
     headers = {
@@ -104,17 +102,18 @@ def main():
         res = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
         res.raise_for_status()
     except Exception as e:
-        print(f"❌ خطا در خواندن کانال: {e}")
+        print(f"❌ خطا در دریافت وب‌پیج کانال: {e}")
         sys.exit(1)
 
     soup = BeautifulSoup(res.text, "html.parser")
     messages = soup.select("div.tgme_widget_message_wrap")
 
     if not messages:
-        print("⚠️ هیچ پیامی در وب‌پیج کانال دریافت نشد.")
+        print("⚠️ پیامی در کانال مبدأ یافت نشد.")
         return
 
     sent_count = 0
+    # پیمایش پست‌های اخیر به ترتیب زمان
     for msg in messages[-MAX_POSTS_TO_CHECK:]:
         time_elem = msg.find("time")
         text_elem = msg.select_one("div.tgme_widget_message_text")
@@ -124,14 +123,14 @@ def main():
         if not contains_filter(raw_text):
             continue
 
-        # بررسی تاریخ برای جلوگیری از ارسال روزهای قبل
+        # بررسی تاریخ انتشار پست (فقط پست‌های ارسال شده در روز جاری)
         if not is_today_post(time_elem):
-            print("⏳ پست کنداکتور مربوط به تاریخ گذشته است (رد شد).")
+            print("⏳ پست کنداکتور مربوط به روزهای قبل است (رد شد).")
             continue
 
-        print("🎯 کنداکتور امروز یافت شد؛ در حال ارسال...")
+        print("🎯 کنداکتور جدید امروز یافت شد؛ در حال پردازش و ارسال...")
         
-        # پاک‌سازی فقط آیدی‌ها و لینک‌ها (متن کپشن حفظ می‌شود)
+        # تمیزسازی متن کپشن
         clean_text_content = clean_caption(raw_text)
         photo_url = extract_photo_url(msg)
 
@@ -153,9 +152,9 @@ def main():
 
     print("──────────────────────────────────")
     if sent_count > 0:
-        print(f"🚀 مجموعاً {sent_count} پست کنداکتور امروز با کپشن تمیز ارسال گردید.")
+        print(f"🚀 مجموعاً {sent_count} پست کنداکتور امروز با موفقیت ارسال شد.")
     else:
-        print("ℹ️ در بررسی فعلی، پست کنداکتور جدیدی از امروز منتشر نشده بود.")
+        print("ℹ️ پست کنداکتور جدیدی برای امروز در کانال منتشر نشده بود.")
 
 if __name__ == "__main__":
     main()
