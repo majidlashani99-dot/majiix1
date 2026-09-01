@@ -1,20 +1,21 @@
-name: Daily Conductor Forwarder
+name: Auto Forward Conductor Posts
 
 on:
+  workflow_dispatch: # امکان اجرای دستی در هر لحظه
+  repository_dispatch:
+    types: [trigger-forwarder]
   schedule:
-    # ساعت 06:00 به وقت UTC برابر با 09:30 صبح به وقت ایران
-    - cron: '0 6 * * *'
-  workflow_dispatch:
+    # 09:17 AM Iran Time (UTC+3:30) => 05:47 UTC
+    - cron: '47 5 * * *'
 
 jobs:
-  check_and_forward:
+  forward:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set Up Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -22,12 +23,13 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install requests beautifulsoup4
+          pip install requests beautifulsoup4
 
-      - name: Run Script
+      - name: Run Forwarder Script
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          SOURCE_CHANNEL: 'SPORTinoTV'
-          FILTER_TEXT: 'کنداکتور'
-        run: python forwarder.py
+          SOURCE_CHANNEL: "SPORTinoTV"
+          FILTER_TEXT: "کنداکتور"
+        run: |
+          python forwarder.py
