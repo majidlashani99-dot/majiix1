@@ -2,6 +2,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 import jdatetime
+import pytz
 from PIL import Image, ImageDraw, ImageFont
 import arabic_reshaper
 
@@ -21,6 +22,21 @@ def fix(text):
     if not text:
         return ""
     return reshaper.reshape(str(text))
+
+def get_persian_date():
+    """محاسبه دقیق تاریخ و روز هفته بر مبنای افق زمانی تهران"""
+    tehran_tz = pytz.timezone('Asia/Tehran')
+    now_tehran = jdatetime.datetime.now(tehran_tz)
+    
+    # ترتیب صحیح در jdatetime: شنبه = 0، جمعه = 6
+    days = ["شنبه", "یک‌شنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنج‌شنبه", "جمعه"]
+    months = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"]
+    
+    day_name = days[now_tehran.weekday()]
+    month_name = months[now_tehran.month - 1]
+    
+    date_text = f"{day_name} {now_tehran.day} {month_name} {now_tehran.year}"
+    return date_text
 
 def fetch_table():
     headers = {
@@ -75,6 +91,28 @@ def make_image(headers_row, rows, date_text):
     TITLE_H = 120
     H = TITLE_H + HEADER_H + (ROW_H * len(rows)) + 30
 
+    bg = (15, 23, 42)          "{len(rows)} ردیف داده استخراج شد.")
+    return headers_row, rows
+
+def download_font():
+    """دانلود فونت وزیرمتن"""
+    base = "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/"
+    for name in ["Vazirmatn-Bold.ttf", "Vazirmatn-Regular.ttf"]:
+        if not os.path.exists(name):
+            print(f"در حال دانلود فونت {name}...")
+            f = requests.get(base + name)
+            with open(name, "wb") as out:
+                out.write(f.content)
+
+def make_image(headers_row, rows, date_text):
+    download_font()
+
+    W = 920
+    ROW_H = 58
+    HEADER_H = 62
+    TITLE_H = 120
+    H = TITLE_H + HEADER_H + (ROW_H * len(rows)) + 30
+
     bg = (15, 23, 42)          # پس‌زمینه سرمه‌ای تیره
     header_bg = (2, 132, 199)  # هدر آبی
     row_bg1 = (30, 41, 59)
@@ -85,19 +123,7 @@ def make_image(headers_row, rows, date_text):
     img = Image.new('RGB', (W, H), bg)
     draw = ImageDraw.Draw(img)
 
-    f_title = ImageFont.truetype("Vazirmatn-Bold.ttf", 32)
-    f_header = ImageFont.truetype("Vazirmatn-Bold.ttf", 22)
-    f_cell = ImageFont.truetype("Vazirmatn-Regular.ttf", 21)
-    f_date = ImageFont.truetype("Vazirmatn-Regular.ttf", 18)
-
-    # سرتیتر و تاریخ
-    draw.text((W // 2, 45), fix("قیمت لحظه‌ای طلا، سکه و ارز"), font=f_title, fill=accent, anchor="mm", direction="rtl")
-    draw.text((W // 2, 85), fix(date_text), font=f_date, fill=(148, 163, 184), anchor="mm", direction="rtl")
-
-    # ردیف هدر
-    y = TITLE_H
-    draw.rectangle([25, y, W - 25, y + HEADER_H], fill=header_bg)
-    draw.text((W - 50, y + HEADER_H // 2), fix("نام دارایی"), font=f_header, fill=text_light, anchor="rm", direction="rtl")
+    ((W - 50, y + HEADER_H // 2), fix("نام دارایی"), font=f_header, fill=text_light, anchor="rm", direction="rtl")
     draw.text((W // 2, y + HEADER_H // 2), fix("قیمت (تومان)"), font=f_header, fill=text_light, anchor="mm", direction="rtl")
     draw.text((60, y + HEADER_H // 2), fix("تغییرات"), font=f_header, fill=text_light, anchor="lm")
 
@@ -136,7 +162,7 @@ def send_to_telegram(image_file, date_text):
         print("خطا: TG_TOKEN یا TG_CHAT_ID تنظیم نشده است.")
         return
 
-    # کپشن ساده و بدون آیدی یا منبع
+    # کپشن ساده و مرتب
     caption = (
         f"<b>💰 قیمت لحظه‌ای طلا، سکه و ارز</b>\n\n"
         f"📅 {date_text}"
@@ -156,11 +182,7 @@ def send_to_telegram(image_file, date_text):
         print(f"خطای تلگرام:\n{res.text}")
 
 if __name__ == "__main__":
-    days = ["دوشنبه", "سه‌شنبه", "چهارشنبه", "پنج‌شنبه", "جمعه", "شنبه", "یک‌شنبه"]
-    months = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"]
-    today = jdatetime.date.today()
-    date_text = f"{days[today.weekday()]} {today.day} {months[today.month - 1]} {today.year}"
-
+    date_text = get_persian_date()
     headers_row, rows = fetch_table()
     if rows:
         img = make_image(headers_row, rows, date_text)
