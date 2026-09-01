@@ -1,101 +1,101 @@
 import os
+import re
 import sys
 import requests
 from bs4 import BeautifulSoup
 
 BOT_TOKEN = os.environ.get("TG_TOKEN") or os.environ.get("TG_BOT_TOKEN")
 CHAT_ID = os.environ.get("TG_CHAT_ID")
+SOURCE_CHANNEL = "jozeiateRooz"
+MY_CHANNEL_ID = "@majiix1"
 
-def fetch_bahesab_calendar():
-    url = "https://www.bahesab.ir/time/today/"
+def get_latest_post_from_channel(channel_username):
+    url = f"https://t.me/s/{channel_username}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     }
 
-    print("🌐 Fetching data from bahesab.ir...")
-    try:
-        resp = requests.get(url, headers=headers, timeout=20)
-        resp.encoding = 'utf-8'
-        if resp.status_code != 200:
-            return None
-        
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        
-        shamsi = ""
-        gregorian = ""
-        hijri = ""
-        events = []
+    print(f"🌐 Fetching latest calendar post from @{channel_username}...")
+    response = requests.get(url, headers=headers, timeout=20)
+    response.encoding = 'utf-8'
 
-        # استخراج دقیق تاریخ‌ها
-        for tag in soup.find_all(["p", "div", "span", "td"]):
-            t = tag.get_text(" ", strip=True)
-            # خورشیدی
-            if not shamsi and any(m in t for m in ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"]):
-                if any(day in t for day in ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "سه شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]):
-                    shamsi = t
-            # میلادی
-            if not gregorian and any(m in t for m in ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]):
-                gregorian = t
-            # قمری
-            if not hijri and any(m in t for m in ["محرم", "صفر", "ربیع", "جمادی", "رجب", "شعبان", "رمضان", "شوال", "ذیقعده", "ذیحجه"]):
-                hijri = t
+    if response.status_code != 200:
+        print(f"❌ Failed to fetch channel. HTTP Status: {response.status_code}")
+        sys.exit(1)
 
-        # استخراج مناسبت‌ها
-        items = soup.select(".event, .events, ul li, ol li, td")
-        for it in items:
-            txt = it.get_text(" ", strip=True)
-            if txt and len(txt) > 4:
-                if any(k in txt for k in ["روز", "ولادت", "شهادت", "جشن", "عید", "بزرگداشت", "جهانی", "ملی"]):
-                    if not any(bad in txt for bad in ["تبلیغ", "تماس", "درباره", "حقوق", "سایت"]):
-                        events.append(f"▫️ {txt}")
-
-        return {
-            "shamsi": shamsi,
-            "gregorian": gregorian,
-            "hijri": hijri,
-            "events": list(dict.fromkeys(events))[:5] # فقط ۵ مناسبت اول
-        }
-    except Exception as e:
-        print(f"Error: {e}")
-        return None
-
-def build_minimal_ui(d):
-    # ساختار کاملاً فشرده و بدون متن اضافی
-    msg = "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    soup = BeautifulSoup(response.text, 'html.parser')
     
-    if d["shamsi"]:
-        msg += f"🇮🇷 **تاریخ خورشیدی:**\n`{d['shamsi']}`\n\n"
-        
-    if d["gregorian"]:
-        msg += f"🌐 **تاریخ میلادی:**\n`{d['gregorian']}`\n\n"
-        
-    if d["hijri"]:
-        msg += f"🌙 **تاریخ قمری:**\n`{d['hijri']}`\n\n"
-        
-    if d["events"]:
-        msg += "📌 **مناسبت‌ها:**\n"
-        for e in d["events"]:
-            msg += f"{e}\n"
+    # پیدا کردن همه پیام‌های متنی کانال
+    messages = soup.find_all("div", class_="tgme_widget_message_text")
+    if not messages:
+        print("❌ No messages found in the channel preview.")
+        sys.exit(1)
+
+    # انتخاب آخرین پست متنی
+    latest_msg = messages[-1]
+
+    # تبدیل تگ‌های <br> به خط جدید برای حفظ چیدمان
+    for br in latest_msg.find_all("br"):
+        br.replace_with("\n")
+
+    raw_text = latest_msg.get_text()
+    return raw_text
+
+def clean_and_brand_message(text):
+    # 1. حذف لینک‌های t.me و آیدی‌های مبدأ
+    # جایگزینی آیدی‌های کانال مبدأ با آیدی کانال شما
+    cleaned = re.sub(r'@\w+', '', text)
+    cleaned = re.sub(r'https?://t\.me/\S+', '', cleaned)
     
-    msg += "\n━━━━━━━━━━━━━━━━━━━━━━"
-    return msg
+    # حذف خطوط اضافی یا تبلیغاتی انتهای پیام در صورت وجود
+    lines = [line.rstrip() for line in cleaned.split('\n')]
+    
+    # پاکسازی فاصله‌های خالی پشت سر هم
+    final_lines = []
+    prev_empty = False
+    for line in lines:
+        if line == "":
+            if not prev_empty:
+                final_lines.append(line)
+                prev_empty = True
+        else:
+            final_lines.append(line)
+            prev_empty = False
+
+    post_content = "\n".join(final_lines).strip()
+
+    # 2. افزودن آیدی کانال شما به انتهای پست با دیزاین شیک
+    final_message = f"{post_content}\n\n🆔 {MY_CHANNEL_ID}"
+    return final_message
 
 def send_to_telegram(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
         "text": text,
-        "parse_mode": "Markdown",
         "disable_web_page_preview": True
     }
-    requests.post(url, json=payload, timeout=20)
+
+    print("🚀 Sending formatted calendar post to Telegram...")
+    res = requests.post(url, json=payload, timeout=20)
+    data = res.json()
+
+    if res.status_code == 200 and data.get("ok"):
+        print("🎉 Calendar post sent successfully to your channel!")
+    else:
+        print(f"❌ Telegram API Error: {data}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     if not BOT_TOKEN or not CHAT_ID:
+        print("❌ Error: TG_TOKEN or TG_CHAT_ID is missing!")
         sys.exit(1)
 
-    data = fetch_bahesab_calendar()
-    if data:
-        message = build_minimal_ui(data)
-        print(message)
-        send_to_telegram(message)
+    raw_post = get_latest_post_from_channel(SOURCE_CHANNEL)
+    ready_post = clean_and_brand_message(raw_post)
+    
+    print("\n--- Final Message Output ---\n")
+    print(ready_post)
+    print("\n----------------------------\n")
+    
+    send_to_telegram(ready_post)
