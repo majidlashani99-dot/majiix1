@@ -131,18 +131,13 @@ def make_image(headers_row, rows, date_text):
             # قیمت (وسط‌چین)
             draw.text((W // 2, y + ROW_H // 2), str(row[1]), font=f_cell, fill=text_light, anchor="mm")
         
-        # درصد 184)
+        # درصد تغییرات (چپ‌چین)
+        change = next((c for c in row[2:] if '%' in c), "")
+        if change:
+            c_color = (74, 222, 128) if '+' in change else (248, 113, 113)
+            if '+' not in change and '-' not in change:
+                c_color = (148, 163, 184)
             draw.text((60, y + ROW_H // 2), str(change), font=f_cell, fill=c_color, anchor="lm")
-
-        y += ROW_H
-
-    img.save(IMG_FILE)
-    print(f"تصویر با موفقیت ساخته شد: {IMG_FILE}")
-    return IMG_FILE
-
-def send_to_telegram(image_file, date_text):
-    bot_token = os.environ.get("TG_TOKEN")
-=f_cell, fill=c_color, anchor="lm")
 
         y += ROW_H
 
