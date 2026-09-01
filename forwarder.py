@@ -10,7 +10,6 @@ TARGET_CHAT_ID = os.getenv("TG_CHAT_ID")
 SOURCE_CHANNEL = "tvlivefootball"
 IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
-# تبدیل اعداد انگلیسی به فارسی برای جستجوی دقیق در متن تاریخ کانال
 FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 
 PERSIAN_MONTHS = [
@@ -19,7 +18,6 @@ PERSIAN_MONTHS = [
 ]
 
 def gregorian_to_jalali(gy, gm, gd):
-    """تبدیل تاریخ میلادی به هجری شمسی دقیق"""
     g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
     gy2 = gy + 1 if gm > 2 else gy
     days = 355666 + (365 * gy) + ((gy2 + 3) // 4) - ((gy2 + 99) // 100) + ((gy2 + 399) // 400) + gd + g_d_m[gm - 1]
@@ -39,7 +37,6 @@ def gregorian_to_jalali(gy, gm, gd):
     return jy, jm, jd
 
 def get_today_jalali_keywords():
-    """تولید کلمات کلیدی تاریخ امروز شمسی (مثلاً: ۱۰ شهریور و 10 شهریور)"""
     now = datetime.now(IRAN_TZ)
     jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
     month_name = PERSIAN_MONTHS[jm]
@@ -47,121 +44,130 @@ def get_today_jalali_keywords():
     day_fa = str(jd).translate(FA_DIGITS)
     day_en = str(jd)
     
-    # کلمات کلیدی برای تطابق دقیق با پست‌های امروز
     keywords = [
         f"{day_fa} {month_name}",
         f"{day_en} {month_name}"
     ]
     return keywords, f"{day_fa} {month_name} {jy}"
 
-def forward_from_channel(msg_id: int):
-    """فوروارد مستقیم پیام از کانال مرجع به کانال شما"""
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/forwardMessage"
-    payload = {
-        "chat_id": TARGET_CHAT_ID,
-        "from_chat_id": f"@{SOURCE_CHANNEL}",
-        "message_id": msg_id
-    }
-    res = requests.post(url, json=payload, timeout=25)
-    return res.json()
-
-def send_photo_with_caption(photo_url: str, caption_text: str):
-    """در صورت نیاز، ارسال تصویر با کپشن به عنوان روش پشتیبان"""
+def send_telegram_photo(photo_url: str, caption: str):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     payload = {
         "chat_id": TARGET_CHAT_ID,
         "photo": photo_url,
-        "caption": caption_text,
-        "parse_mode": "HTML"
+        "caption": caption
     }
     res = requests.post(url, json=payload, timeout=25)
     return res.json()
 
-def search_and_send_today_conductor():
-    keywords, jalali_today = get_today_jalali_keywords()
-    print(f"🔍 در حال جستجوی کنداکتور امروز ({jalali_today}) در کانال @{SOURCE_CHANNEL}...")
+def send_telegram_message(text: str):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TARGET_CHAT_ID,
+        "text": text
+    }
+    res = requests.post(url, json=payload, timeout=25)
+    return res.json()
 
-    # دریافت نسخه وب کانال
+def main():
+    if not BOT_TOKEN or not TARGET_CHAT_ID:
+        print("❌ ارور: متغیرهای TG_TOKEN یا TG_CHAT_ID در GitHub Secrets تنظیم نشده‌اند!")
+        sys.exit(1)
+
+    keywords, jalali_today = get_today_jalali_keywords()
+    print(f"🔍 تاریخ هدف: {jalali_today} | کلمات کلیدی: {keywords}")
+
     url = f"https://t.me/s/{SOURCE_CHANNEL}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     }
-    res = requests.get(url, headers=headers, timeout=25)
-    if res.status_code != 200:
-        print(f"❌ خطا در باز کردن کانال: وضعیت {res.status_code}")
+    
+    response = requests.get(url, headers=headers, timeout=25)
+    if response.status_code != 200:
+        print(f"❌ خطا در لود کانال تلگرام: وضعیت {response.status_code}")
         sys.exit(1)
 
-    soup = BeautifulSoup(res.text, "html.parser")
+    soup = BeautifulSoup(response.text, "html.parser")
     messages = soup.select(".tgme_widget_message_wrap")
 
-    matched_posts = []
+    print(f"📊 تعداد کل پیام‌های دریافت شده از صفحه: {len(messages)}")
 
-    # پیمایش پیام‌ها از جدیدترین به قدیمی‌ترین
+    matched_post = None
+
+    # بررسی پیام‌ها از آخر به اول
     for msg in reversed(messages):
         msg_elem = msg.select_one(".tgme_widget_message")
         if not msg_elem:
             continue
 
         raw_id = msg_elem.get("data-post", "")
-        if "/" not in raw_id:
-            continue
-        msg_id = int(raw_id.split("/")[-1])
-
         text_elem = msg.select_one(".tgme_widget_message_text")
-        text = text_elem.get_text(separator=" ", strip=True) if text_elem else ""
+        text = text_elem.get_text(separator="\n", strip=True) if text_elem else ""
 
-        # بررسی وجود کلمات کلیدی تاریخ امروز و فیلتر کردن پست‌های نتایج دیروز
-        has_today = any(kw in text for kw in keywords)
-        is_result_post = "نتایج" in text or "دیروز" in text
+        # بررسی عکس داخل پیام
+        photo_elem = msg.select_one(".tgme_widget_message_photo_wrap")
+        photo_url = ""
+        if photo_elem:
+            style = photo_elem.get("style", "")
+            match = re.search(r"url\('?(.*?)'?\)", style)
+            if match:
+                photo_url = match.group(1)
 
-        # اولویت با پست برنامه بازی‌ها یا پخش زنده امروز است
-        if has_today and not is_result_post:
-            if "برنامه مسابقات" in text or "پخش_زنده" in text or "پخش زنده" in text or "کنداکتور" in text:
-                # استخراج عکس در صورت وجود
-                photo_elem = msg.select_one(".tgme_widget_message_photo_wrap")
-                photo_url = ""
-                if photo_elem and "background-image" in photo_elem.get("style", ""):
-                    match = re.search(r"url\('?(.*?)'?\)", photo_elem["style"])
-                    if match:
-                        photo_url = match.group(1)
+        # شرایط کنداکتور: تطابق با تاریخ امروز و عدم وجود کلمه نتایج
+        is_today = any(kw in text for kw in keywords)
+        is_result = "نتایج" in text or "دیروز" in text
+        is_conductor = ("برنامه مسابقات" in text or "پخش_زنده" in text or "پخش زنده" in text or "مسابقات مهم" in text)
 
-                matched_posts.append({
-                    "id": msg_id,
-                    "text": text,
-                    "photo": photo_url
-                })
+        if is_today and not is_result and (is_conductor or photo_url):
+            matched_post = {
+                "id": raw_id,
+                "text": text,
+                "photo": photo_url
+            }
+            break
 
-    if not matched_posts:
-        print(f"⚠️ پستی با تاریخ امروز ({jalali_today}) پیدا نشد.")
-        return False
+    # اگر پستی با تاریخ امروز پیدا نشد، آخرین پست برنامه مسابقات را به عنوان فال‌بک انتخاب کن
+    if not matched_post:
+        print("⚠️ پست دقیق با تاریخ امروز پیدا نشد، در حال جستجوی آخرین پست معتبر مسابقات...")
+        for msg in reversed(messages):
+            msg_elem = msg.select_one(".tgme_widget_message")
+            if not msg_elem:
+                continue
+            raw_id = msg_elem.get("data-post", "")
+            text_elem = msg.select_one(".tgme_widget_message_text")
+            text = text_elem.get_text(separator="\n", strip=True) if text_elem else ""
+            photo_elem = msg.select_one(".tgme_widget_message_photo_wrap")
+            photo_url = ""
+            if photo_elem:
+                match = re.search(r"url\('?(.*?)'?\)", photo_elem.get("style", ""))
+                if match:
+                    photo_url = match.group(1)
+            
+            if ("برنامه مسابقات" in text or "پخش_زنده" in text) and "نتایج" not in text:
+                matched_post = {"id": raw_id, "text": text, "photo": photo_url}
+                break
 
-    # ارسال پست کنداکتور پیدا شده
-    target_post = matched_posts[0]
-    print(f"🎯 پست هدف پیدا شد (Message ID: {target_post['id']})")
-    
-    # فوروارد کردن پست اصلی
-    result = forward_from_channel(target_post["id"])
-    
-    if result.get("ok"):
-        print("✅ پیام/جدول بازی‌های امروز با موفقیت فوروارد شد!")
-        return True
-    else:
-        print(f"⚠️ فوروارد با محدودیت روبه‌رو شد ({result.get('description')})، تلاش برای ارسال مستقیم عکس/متن...")
-        if target_post["photo"]:
-            send_photo_with_caption(target_post["photo"], f"💠 <b>کنداکتور مسابقات امروز ({jalali_today})</b>\n\n🆔 @Doroudcity")
-            print("✅ تصویر جدول با موفقیت ارسال شد.")
-            return True
-        else:
-            print("❌ ارسال ناموفق بود.")
-            return False
-
-def main():
-    if not BOT_TOKEN or not TARGET_CHAT_ID:
-        print("❌ متغیرهای TG_TOKEN یا TG_CHAT_ID تنظیم نشده‌اند.")
+    if not matched_post:
+        print("❌ هیچ پستی برای ارسال پیدا نشد.")
         sys.exit(1)
 
-    success = search_and_send_today_conductor()
-    if not success:
+    print(f"🚀 در حال ارسال پست: {matched_post['id']}")
+    
+    # ارسال به تلگرام
+    if matched_post["photo"]:
+        caption_text = matched_post["text"] if matched_post["text"] else f"🔹 کنداکتور مسابقات امروز ({jalali_today})"
+        res = send_telegram_photo(matched_post["photo"], caption_text)
+    else:
+        res = send_telegram_message(matched_post["text"])
+
+    print(f"📩 پاسخ تلگرام: {res}")
+    if res.get("ok"):
+        print("✅ پست با موفقیت به کانال ارسال شد!")
+    else:
+        print(f"❌ خطا از طرف تلگرام: {res.get('description')}")
+        # بررسی دلیل رایج: ادمین نبودن ربات در کانال
+        if "chat not found" in str(res).lower() or "forbidden" in str(res).lower():
+            print("👉 مجید جان، مطمئن شو ربات تلگرام در کانال/گروه مقصد به عنوان ادمین (با دسترسی Post Messages) اضافه شده باشد.")
         sys.exit(1)
 
 if __name__ == "__main__":
