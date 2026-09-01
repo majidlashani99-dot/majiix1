@@ -2,117 +2,110 @@ import os
 import sys
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
 
 BOT_TOKEN = os.environ.get("TG_TOKEN") or os.environ.get("TG_BOT_TOKEN")
 CHAT_ID = os.environ.get("TG_CHAT_ID")
 
-def get_time_ir_data():
+def fetch_bahesab_calendar():
+    url = "https://www.bahesab.ir/time/today/"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "fa,en;q=0.9"
     }
-    
+
+    print("🌐 Fetching calendar data from bahesab.ir...")
+    resp = requests.get(url, headers=headers, timeout=20)
+    resp.encoding = 'utf-8'
+
+    if resp.status_code != 200:
+        print(f"❌ Failed to load bahesab.ir. HTTP Status: {resp.status_code}")
+        sys.exit(1)
+
+    soup = BeautifulSoup(resp.text, 'html.parser')
+
+    # استخراج تاریخ خورشیدی، میلادی، قمری
+    shamsi = ""
+    gregorian = ""
+    hijri = ""
+    zodiac = ""
     events = []
-    shamsi_text = ""
-    gregorian_text = ""
-    hijri_text = ""
-    
-    try:
-        resp = requests.get("https://www.time.ir/", headers=headers, timeout=15)
-        resp.encoding = 'utf-8'
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            
-            # استخراج رویدادها و مناسبت‌های روز
-            event_items = soup.find_all("li", class_=lambda x: x and ("event" in x.lower() or "holiday" in x.lower())) or soup.select(".list-unstyled li")
-            for item in event_items:
-                txt = item.get_text(" ", strip=True)
-                if txt and len(txt) > 2 and "تبلیغ" not in txt and "رویدادهای" not in txt:
-                    is_holiday = "holiday" in str(item.get("class", [])).lower() or "red" in str(item.get("style", "")).lower()
-                    icon = "🔴" if is_holiday else "▫️"
-                    events.append(f"{icon} {txt}")
-                    
-            # استخراج متن‌های تاریخ از المنت‌های صفحه
-            all_text_elements = soup.select(".today-container, .dates, .panel-today, .showDate, div")
-            for el in all_text_elements:
-                t = el.get_text(" ", strip=True)
-                if not shamsi_text and ("فروردین" in t or "اردیبهشت" in t or "خرداد" in t or "تیر" in t or "مرداد" in t or "شهریور" in t or "مهر" in t or "آبان" in t or "آذر" in t or "دی" in t or "بهمن" in t or "اسفند" in t):
-                    for line in t.split("\n"):
-                        clean = line.strip()
-                        if any(m in clean for m in ["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور","مهر","آبان","آذر","دی","بهمن","اسفند"]):
-                            shamsi_text = clean
-                            break
-    except Exception as e:
-        print(f"⚠️ Error scraping time.ir: {e}")
-        
+
+    # استخراج بخش تاریخ‌ها از جداول و باکس‌های باحساب
+    for tag in soup.select("table, div, p, span, h1, h2, h3, td"):
+        t = tag.get_text(" ", strip=True)
+        if not shamsi and any(m in t for m in ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"]):
+            if any(day in t for day in ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "سه شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]):
+                shamsi = t
+        if not gregorian and any(m in t for m in ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]):
+            gregorian = t
+        if not hijri and any(m in t for m in ["محرم", "صفر", "ربیع", "جمادی", "رجب", "شعبان", "رمضان", "شوال", "ذیقعده", "ذیحجه"]):
+            hijri = t
+        if not zodiac and any(z in t for z in ["برج", "فلکی", "حمل", "ثور", "جوزا", "سرطان", "اسد", "سنبله", "میزان", "عقرب", "قوس", "جدی", "دلو", "حوت", "موش", "گاو", "ببر", "خرگوش", "نهنگ", "مار", "اسب", "گوسفند", "میمون", "مرغ", "سگ", "خوک"]):
+            if "سال" in t or "برج" in t:
+                zodiac = t
+
+    # استخراج مناسبت‌ها
+    # در سایت باحساب مناسبت‌ها در لیست‌ها یا بخش‌های خاص روز قرار دارند
+    items = soup.select(".event, .events, ul li, ol li, .box li, td")
+    for it in items:
+        txt = it.get_text(" ", strip=True)
+        if txt and len(txt) > 4:
+            if any(k in txt for k in ["روز", "ولادت", "شهادت", "جشن", "عید", "بزرگداشت", "جهانی", "ملی", "درگذشت", "سالروز"]):
+                if not any(bad in txt for bad in ["تبلیغ", "تماس", "درباره", "حقوق", "سایت", "ماشین حساب"]):
+                    is_holiday = "holiday" in str(it.get("class", "")).lower() or "red" in str(it.get("style", "")).lower()
+                    prefix = "🔴" if is_holiday else "▫️"
+                    events.append(f"{prefix} {txt}")
+
+    # حذف تکراری‌ها و تمیزکاری
+    clean_events = []
+    seen = set()
+    for ev in events:
+        # پاکسازی بخش‌های اضافی
+        ev_clean = " ".join(ev.split())
+        if ev_clean not in seen and len(ev_clean) < 120:
+            seen.add(ev_clean)
+            clean_events.append(ev_clean)
+
     return {
-        "shamsi": shamsi_text,
-        "events": list(dict.fromkeys(events))
+        "shamsi": shamsi.strip(),
+        "gregorian": gregorian.strip(),
+        "hijri": hijri.strip(),
+        "zodiac": zodiac.strip(),
+        "events": clean_events[:8] # حداکثر ۸ رویداد برتر روز
     }
 
-def get_complete_calendar_data():
-    # دریافت اطلاعات جامع تاریخ از API بدون باگ
-    api_url = "https://api.keybit.ir/time/"
-    time_ir_info = get_time_ir_data()
-    
-    data = {}
-    try:
-        res = requests.get(api_url, timeout=10)
-        if res.status_code == 200:
-            j = res.json()
-            if j.get("status") == "ok":
-                date_info = j.get("date", {})
-                time_info = j.get("time24", {})
-                
-                # تاریخ شمسی
-                data["shamsi"] = date_info.get("full", {}).get("official", {}).get("usual", {}).get("fa") or time_ir_info["shamsi"]
-                # تاریخ میلادی
-                g = date_info.get("other", {}).get("gregorian", {})
-                data["gregorian"] = f"{g.get('weekday', {}).get('name')}, {g.get('day', {}).get('name')} {g.get('month', {}).get('name')} {g.get('year', {}).get('name')}"
-                # تاریخ قمری
-                q = date_info.get("other", {}).get("ghamari", {})
-                data["hijri"] = f"{q.get('weekday', {}).get('name')} {q.get('day', {}).get('name')} {q.get('month', {}).get('name')} {q.get('year', {}).get('name')}"
-                # حیوان سال و برج
-                data["animal"] = date_info.get("year", {}).get("animal", "")
-                data["season"] = j.get("season", {}).get("name", {}).get("fa", "")
-    except Exception as e:
-        print(f"⚠️ API error fallback: {e}")
-        
-    # اگر API در دسترس نبود از اطلاعات جایگزین استفاده شود
-    if not data.get("shamsi"):
-        data["shamsi"] = time_ir_info["shamsi"] or "امروز"
-        now = datetime.now()
-        data["gregorian"] = now.strftime("%A, %d %B %Y")
-        data["hijri"] = "تقویم هجری قمری"
-        
-    data["events"] = time_ir_info["events"]
-    return data
+def build_telegram_ui(data):
+    msg = (
+        "✨ **تـقـویـم و رویدادهای روز** ✨\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
 
-def format_telegram_post(d):
-    post = "☀️ **تقویم روز و مناسبت‌ها**\n"
-    post += "━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    post += f"🇮🇷 **خورشیدی:** `{d.get('shamsi', '')}`\n"
-    if d.get("gregorian"):
-        post += f"🌐 **میلادی:** `{d.get('gregorian', '')}`\n"
-    if d.get("hijri"):
-        post += f"🌙 **قمری:** `{d.get('hijri', '')}`\n"
-    if d.get("animal"):
-        post += f"🐾 **نماد سال:** `{d.get('animal', '')}`\n"
+    if data["shamsi"]:
+        msg += f"🇮🇷 **تاریخ خورشیدی:**\n` 📅 {data['shamsi']} `\n\n"
 
-    post += "\n📌 **مناسبت‌ها و رویدادهای امروز:**\n"
-    events = d.get("events", [])
-    if events:
-        for ev in events:
-            post += f"{ev}\n"
+    if data["gregorian"]:
+        msg += f"🌐 **تاریخ میلادی:**\n` 🗓 {data['gregorian']} `\n\n"
+
+    if data["hijri"]:
+        msg += f"🌙 **تاریخ قمری:**\n` 🕋 {data['hijri']} `\n\n"
+
+    if data["zodiac"]:
+        msg += f"🪐 **نماد / برج روز:**\n` 🔮 {data['zodiac']} `\n\n"
+
+    msg += "📌 **مناسبت‌ها و رویدادهای مهم امروز:**\n"
+    if data["events"]:
+        for e in data["events"]:
+            msg += f"{e}\n"
     else:
-        post += "▫️ _مناسبت خاصی برای امروز ثبت نشده است._\n"
-        
-    post += "\n━━━━━━━━━━━━━━━━━━━━━\n"
-    post += "🆔 **@majiix1**"
-    return post
+        msg += "▫️ _برای امروز رویداد یا مناسبت رسمی ثبت نشده است._\n"
 
-def send_message(text):
+    msg += (
+        "\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        "💎 **کانال تحلیلی مجیکس** ➔ 🆔 **@majiix1**"
+    )
+    return msg
+
+def send_telegram_msg(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
@@ -120,20 +113,23 @@ def send_message(text):
         "parse_mode": "Markdown",
         "disable_web_page_preview": True
     }
-    r = requests.post(url, json=payload, timeout=20)
-    res = r.json()
-    if r.status_code == 200 and res.get("ok"):
-        print("🎉 Successfully sent full calendar message to Telegram!")
+    
+    res = requests.post(url, json=payload, timeout=20)
+    res_data = res.json()
+    if res.status_code == 200 and res_data.get("ok"):
+        print("🎉 پیام با موفقیت و در قالبی فوق‌العاده شیک به کانال ارسال شد!")
     else:
-        print(f"❌ Telegram API Error: {res}")
+        print(f"❌ خطا در ارسال تلگرام: {res_data}")
         sys.exit(1)
 
 if __name__ == "__main__":
     if not BOT_TOKEN or not CHAT_ID:
-        print("❌ Missing TG_TOKEN / TG_CHAT_ID")
+        print("❌ متغیرهای TG_TOKEN یا TG_CHAT_ID پیدا نشدند.")
         sys.exit(1)
-        
-    calendar_data = get_complete_calendar_data()
-    msg = format_telegram_post(calendar_data)
-    print("\nGenerated Message Preview:\n", msg)
-    send_message(msg)
+
+    data = fetch_bahesab_calendar()
+    message = build_telegram_ui(data)
+    print("\n--- Message Output ---\n")
+    print(message)
+    print("\n-----------------------\n")
+    send_telegram_msg(message)
