@@ -1,0 +1,38 @@
+name: ⚽ Majix Daily Football
+
+on:
+  schedule:
+    # ساعت ۰۶:۰۰ صبح تهران (UTC+3:30) = ۰۲:۳۰ به وقت UTC
+    - cron: "30 2 * * *"
+  workflow_dispatch: # اجرای دستی برای تست
+
+permissions:
+  contents: read
+
+concurrency:
+  group: majix-daily-football
+  cancel-in-progress: false
+
+jobs:
+  send:
+    name: Send today's matches to Telegram
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --quiet requests beautifulsoup4
+
+      - name: Send matches
+        run: python scripts/send_matches.py
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          FOOTBALL_API_KEY: ${{ secrets.FOOTBALL_API_KEY }}
